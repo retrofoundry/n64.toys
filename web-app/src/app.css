@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --color-base: #0d0e0d;
+  --color-panel: #101110;
+  --color-raised: #171817;
+  --color-edge: #3d3e39;
+  --color-edge-hi: #64655e;
+  --color-ink: #e5e4dc;
+  --color-ink-dim: #aaa9a0;
+  --color-ink-faint: #71716a;
+  --color-n64-red: #ef3e24;
+  --color-n64-green: #25b85b;
+  --color-n64-blue: #168bd2;
+  --color-n64-yellow: #ffd400;
+}
+
+html { color-scheme: dark; background: var(--color-base); }
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--color-base);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, textarea, select { font: inherit; }
+button, a { outline-color: var(--color-n64-blue); }
+#app { width: 100%; }
+
+.browse-page {
+  width: 100%;
+  padding: clamp(24px, 3vw, 44px) clamp(18px, 2.4vw, 44px);
+}
+
+.browse-canvas {
+  min-height: max(360px, 62vh);
+}
+
+@layer components {
+  .ui-button {
+    border: 1px solid var(--color-edge);
+    border-radius: 0;
+    background: var(--color-raised);
+    color: var(--color-ink);
+    padding: 0.4rem 0.65rem;
+    cursor: pointer;
+  }
+  .ui-button:hover { border-color: var(--color-edge-hi); }
+  .ui-button:focus-visible { outline: 2px solid var(--color-n64-blue); outline-offset: 2px; }
+  .ui-button:disabled { cursor: wait; opacity: 0.55; }
+  .ui-button-primary { border-color: var(--color-n64-red); background: var(--color-n64-red); color: white; font-weight: 700; }
+  .ui-button-quiet { border-color: transparent; background: transparent; color: var(--color-ink-dim); }
+  .ui-button-quiet:hover { color: var(--color-ink); }
+  .ui-status { border: 1px solid var(--color-edge); padding: 0.2rem 0.45rem; font-size: 11px; }
+  .ui-field { width: 100%; border: 1px solid var(--color-edge); border-radius: 0; background: var(--color-base); color: var(--color-ink); padding: 0.45rem 0.55rem; }
+  .ui-field:focus { border-color: var(--color-n64-blue); outline: 1px solid var(--color-n64-blue); }
+
+  .tag {
+    display: inline-flex; align-items: center;
+    border: 1px solid var(--color-edge);
+    padding: 1px 6px;
+    font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--color-ink-dim);
+  }
+  .link {
+    color: var(--color-ink-dim); font-weight: 700;
+    cursor: pointer; text-underline-offset: 2px;
+    transition: color 0.12s ease;
+  }
+  .link:hover { color: var(--color-n64-blue); text-decoration: underline; }
+  .link:focus-visible { outline: 2px solid var(--color-n64-blue); outline-offset: 2px; }
+  .page-title {
+    margin: 0;
+    font-size: 13px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--color-ink);
+  }
+}
+
+.editor-workspace {
+  display: grid;
+  gap: 14px;
+  grid-template-areas: "back" "viewport" "source" "meta" "textures" "diagnostics" "settings";
+}
+.editor-back { grid-area: back; }
+.editor-viewport { grid-area: viewport; min-width: 0; }
+.editor-source { grid-area: source; min-width: 0; }
+.editor-meta { grid-area: meta; }
+.editor-textures { grid-area: textures; min-width: 0; }
+.editor-diagnostics { grid-area: diagnostics; }
+.editor-settings { grid-area: settings; }
+@media (min-width: 1024px) {
+  .editor-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    grid-template-areas:
+      "back back"
+      "viewport source"
+      "textures source"
+      "meta settings"
+      "diagnostics settings";
+    align-items: start;
+  }
+}

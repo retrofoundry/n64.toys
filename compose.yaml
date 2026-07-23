@@ -1,0 +1,72 @@
+x-api-image: &api-image
+  image: n64-toys-api:local
+  build:
+    context: .
+    dockerfile: server/Dockerfile
+
+services:
+  n64-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  migrate:
+    <<: *api-image
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      PORT: "3001"
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@n64-db:5432/${POSTGRES_DB}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      TRUSTED_ORIGINS: ${TRUSTED_ORIGINS}
+      TRUST_PROXY: ${TRUST_PROXY}
+    command: ["node", "dist/db/migrate.js"]
+    depends_on:
+      n64-db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *api-image
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      PORT: "3001"
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@n64-db:5432/${POSTGRES_DB}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      TRUSTED_ORIGINS: ${TRUSTED_ORIGINS}
+      TRUST_PROXY: ${TRUST_PROXY}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://127.0.0.1:3001/api/health",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  postgres-data:

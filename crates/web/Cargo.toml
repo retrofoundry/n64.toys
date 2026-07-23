@@ -1,0 +1,20 @@
+[package]
+name = "web"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+fast3d = { git = "https://github.com/retrofoundry/fast3d-rs" }
+wgpu.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+console_error_panic_hook.workspace = true
+serde.workspace = true
+serde-wasm-bindgen.workspace = true
+
+[dependencies.web-sys]
+workspace = true
+features = ["HtmlCanvasElement"]
