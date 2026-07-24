@@ -6,11 +6,6 @@
   let { settings = $bindable() }: { settings: Settings } = $props();
 
   const microcodes = [{ value: "F3DEX2", label: "F3DEX2" }];
-  const formats = [
-    { value: "RGBA16", label: "RGBA16" },
-    { value: "RGBA32", label: "RGBA32" },
-  ];
-
   const triggerCls =
     "flex min-w-[110px] cursor-pointer items-center justify-between gap-2 border border-edge bg-raised px-3 py-1.5 text-xs text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-n64-blue";
   const contentCls =
@@ -34,17 +29,4 @@
     </Select.Root>
   </div>
 
-  <div class="flex items-center justify-between border border-edge bg-base px-3 py-2.5">
-    <span id="colorformat-label" class="text-ink-dim text-xs">Color format</span>
-    <Select.Root type="single" bind:value={settings.colorFormat} items={formats}>
-      <Select.Trigger aria-labelledby="colorformat-label" class={triggerCls}>{settings.colorFormat} ▾</Select.Trigger>
-      <Select.Portal>
-        <Select.Content class={contentCls} sideOffset={6}>
-          {#each formats as f (f.value)}
-            <Select.Item class={itemCls} value={f.value} label={f.label}>{f.label}</Select.Item>
-          {/each}
-        </Select.Content>
-      </Select.Portal>
-    </Select.Root>
-  </div>
 </Panel>

@@ -17,7 +17,6 @@ export type Diagnostic = { line: number; msg: string };
 export type Settings = {
   autoRun: boolean;
   microcode: string;
-  colorFormat: string;
 };
 
 function sameDiags(a: Diagnostic[], b: Diagnostic[]): boolean {
@@ -188,7 +187,6 @@ export class Playground {
   settings = $state<Settings>({
     autoRun: false,
     microcode: "F3DEX2",
-    colorFormat: "RGBA16",
   });
 
   // transport
