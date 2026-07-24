@@ -169,8 +169,8 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "fast3d"
-version = "1.0.0"
-source = "git+https://github.com/retrofoundry/fast3d-rs#9d0391c12add4fd97a8806de6f84204a647895fd"
+version = "2.0.0"
+source = "git+https://github.com/retrofoundry/fast3d-rs?rev=da3ddf8455f016f1178b3897b68865804ca06f4b#da3ddf8455f016f1178b3897b68865804ca06f4b"
 dependencies = [
  "bytemuck",
  "log",

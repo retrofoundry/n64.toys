@@ -1,4 +1,4 @@
-import init, { Renderer, textureDeclarations } from "../wasm/n64_toys.js";
+import init, { Renderer, analyze } from "../wasm/n64_toys.js";
 import type { Toy, ToyTexture } from "../toys/types";
 import { parseBin } from "./texture-bin";
 import { emaFps } from "./fps";
@@ -41,8 +41,12 @@ type TransitionOptions = { signal?: AbortSignal };
 type PreparedAsset = { name: string; asset: TextureAsset };
 type RenderResult = {
   diags: Diagnostic[];
-  is_time_variant: boolean;
   error: string | null;
+};
+type SourceAnalysis = {
+  textures: TextureDeclaration[];
+  references_time: boolean;
+  diags: Diagnostic[];
 };
 type RenderTextureSnapshot = Readonly<{
   name: string;
@@ -160,7 +164,19 @@ async function prepareBundledAsset(
 }
 
 export class Playground {
-  source = $state("");
+  #source = $state("");
+  /** True once init() has loaded the wasm module — analyze() is callable only after that. */
+  #analysisReady = false;
+
+  /** The display-list source. Every external write re-runs source analysis atomically. */
+  get source(): string {
+    return this.#source;
+  }
+  set source(value: string) {
+    this.#source = value;
+    if (this.#analysisReady) this.reconcileTextureDeclarations();
+  }
+
   diags = $state<Diagnostic[]>([]);
   status = $state("loading…");
   textureSlots = $state<TextureSlot[]>([]);
@@ -205,6 +221,7 @@ export class Playground {
     await init({
       module_or_path: new URL("../wasm/n64_toys_bg.wasm", import.meta.url),
     });
+    this.#analysisReady = true;
     this.#renderer = await Renderer.init(canvas);
     this.status = "ready";
     if (this.source) {
@@ -256,7 +273,6 @@ export class Playground {
   #applyRenderResult(result: RenderResult | null): Diagnostic[] {
     const diags = this.#setMergedDiags(result?.diags ?? []);
     const errored = result?.error != null || diags.length > 0;
-    this.isAnimated = result?.is_time_variant ?? this.isAnimated;
     // Push only on change to avoid 60fps reactivity + CodeMirror lint thrash.
     const status = result?.error
       ? `error: ${result.error}`
@@ -269,18 +285,13 @@ export class Playground {
   }
 
   reconcileTextureDeclarations(): void {
-    const parsed = textureDeclarations(this.source) as {
-      declarations: TextureDeclaration[];
-      diags: Diagnostic[];
-    };
-    const result = reconcileTextureSlots(
-      this.textureSlots,
-      parsed.declarations,
-    );
+    const parsed = analyze(this.source) as SourceAnalysis;
+    const result = reconcileTextureSlots(this.textureSlots, parsed.textures);
     for (const asset of result.orphaned) URL.revokeObjectURL(asset.previewUrl);
     this.#setTextureSlots(result.slots);
     this.declarationDiags = parsed.diags;
-    this.textureLimitError = validateTextureLimits(parsed.declarations);
+    this.textureLimitError = validateTextureLimits(parsed.textures);
+    this.isAnimated = parsed.references_time;
     this.#renderDiags = [];
     this.#setMergedDiags([]);
   }
@@ -538,7 +549,7 @@ export class Playground {
     clearTimeout(this.#debounce);
     this.#debounce = undefined;
     this.#revokeAssets(this.textureSlots);
-    this.source = "";
+    this.#source = "";
     this.title = "";
     this.description = "";
     this.forkOf = undefined;
@@ -556,14 +567,10 @@ export class Playground {
 
   /** Load a toy into the editor as a transient Draft (the editor never mutates the persisted Toy). */
   async loadToy(toy: Toy, { signal }: TransitionOptions = {}): Promise<void> {
-    const parsed = textureDeclarations(toy.source) as {
-      declarations: TextureDeclaration[];
-      diags: Diagnostic[];
-    };
-    const declarations = reconcileTextureSlots(
-      [],
-      parsed.declarations,
-    ).slots.map((slot) => slot.declaration);
+    const parsed = analyze(toy.source) as SourceAnalysis;
+    const declarations = reconcileTextureSlots([], parsed.textures).slots.map(
+      (slot) => slot.declaration,
+    );
     const limitError = validateTextureLimits(declarations);
     const settled = await Promise.allSettled(
       toy.textures.map((texture) => prepareBundledAsset(texture, signal)),
@@ -632,7 +639,7 @@ export class Playground {
 
     this.pause(); // cancel any in-flight rAF loop from the previous toy
     this.#revokeAssets(this.textureSlots);
-    this.source = toy.source;
+    this.#source = toy.source;
     this.title = toy.title;
     this.description = toy.description;
     this.forkOf = toy.slug;
@@ -643,7 +650,8 @@ export class Playground {
     this.#setMergedDiags([]);
     this.time = 0;
     this.#baseTime = 0;
-    this.run(); // one-shot render at t=0; sets isAnimated from the typed result
+    this.isAnimated = parsed.references_time;
+    this.run(); // one-shot render at t=0
     if (this.isAnimated && !prefersReducedMotion()) this.play();
   }
 

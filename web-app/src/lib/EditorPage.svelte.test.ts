@@ -70,7 +70,7 @@ describe("EditorPage", () => {
     expect(location.hash).toBe("#new");
   });
 
-  it("reconciles source declarations before scheduling auto-run", () => {
+  it("schedules auto-run without explicitly reconciling source declarations", () => {
     const pg = new Playground();
     const calls: string[] = [];
     vi.spyOn(pg, "reconcileTextureDeclarations").mockImplementation(() =>
@@ -83,6 +83,6 @@ describe("EditorPage", () => {
 
     components.editorProps?.oninput?.();
 
-    expect(calls).toEqual(["reconcile", "schedule"]);
+    expect(calls).toEqual(["schedule"]);
   });
 });

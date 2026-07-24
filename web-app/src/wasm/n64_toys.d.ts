@@ -12,18 +12,18 @@ export class Renderer {
     render(source: string, time: number, textures: any): any;
 }
 
-export function start(): void;
+export function analyze(source: string): any;
 
-export function textureDeclarations(source: string): any;
+export function start(): void;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_renderer_free: (a: number, b: number) => void;
+    readonly analyze: (a: number, b: number) => any;
     readonly renderer_init: (a: any) => any;
     readonly renderer_render: (a: number, b: number, c: number, d: number, e: any) => any;
-    readonly textureDeclarations: (a: number, b: number) => any;
     readonly start: () => void;
     readonly wasm_bindgen__closure__destroy__h0935b00e02a5d6d9: (a: number, b: number) => void;
     readonly wasm_bindgen__convert__closures_____invoke__h80b894678d38979c: (a: number, b: number, c: any, d: any) => void;

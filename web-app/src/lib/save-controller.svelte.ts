@@ -386,7 +386,6 @@ export class SaveController {
       this.pg.settings.microcode = pending.payload.microcode;
       this.visibility = pending.payload.visibility;
       this.#forkSourceSlug = pending.payload.forkSourceSlug;
-      this.pg.reconcileTextureDeclarations();
       for (const texture of pending.payload.textures) {
         const blob = base64ToBlob(texture.png);
         const file = new File([blob], `${texture.name}.png`, {

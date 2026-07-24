@@ -42,19 +42,19 @@ export class Renderer {
 }
 if (Symbol.dispose) Renderer.prototype[Symbol.dispose] = Renderer.prototype.free;
 
-export function start() {
-    wasm.start();
-}
-
 /**
  * @param {string} source
  * @returns {any}
  */
-export function textureDeclarations(source) {
+export function analyze(source) {
     const ptr0 = passStringToWasm0(source, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.textureDeclarations(ptr0, len0);
+    const ret = wasm.analyze(ptr0, len0);
     return ret;
+}
+
+export function start() {
+    wasm.start();
 }
 
 function __wbg_get_imports() {

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const wasm = vi.hoisted(() => ({
   render: vi.fn(),
-  textureDeclarations: vi.fn(),
+  analyze: vi.fn(),
   createObjectURL: vi.fn(),
   revokeObjectURL: vi.fn(),
 }));
@@ -12,7 +12,7 @@ const wasm = vi.hoisted(() => ({
 vi.mock("../wasm/n64_toys.js", () => ({
   default: vi.fn(async () => undefined),
   Renderer: { init: vi.fn(async () => ({ render: wasm.render })) },
-  textureDeclarations: wasm.textureDeclarations,
+  analyze: wasm.analyze,
 }));
 
 import { Playground } from "./playground.svelte";
@@ -64,13 +64,16 @@ beforeEach(() => {
   vi.clearAllMocks();
   wasm.render.mockReturnValue({
     diags: [],
-    is_time_variant: false,
     // serde-wasm-bindgen serializes Rust `None` to `undefined`, not `null`, so a
     // clean render's error is `undefined`. Mirror that here so capture/publish
     // gating is tested against the real shape.
     error: undefined,
   });
-  wasm.textureDeclarations.mockReturnValue({ declarations: [], diags: [] });
+  wasm.analyze.mockReturnValue({
+    textures: [],
+    references_time: false,
+    diags: [],
+  });
   let nextUrl = 1;
   wasm.createObjectURL.mockImplementation(() => `blob:${nextUrl++}`);
 
@@ -126,8 +129,9 @@ describe("Playground named texture lifecycle", () => {
   });
 
   it("discovers exact names and reuses distinct immutable RGBA snapshots", async () => {
-    wasm.textureDeclarations.mockReturnValue({
-      declarations: [declaration("grass"), declaration("mask", 2)],
+    wasm.analyze.mockReturnValue({
+      textures: [declaration("grass"), declaration("mask", 2)],
+      references_time: false,
       diags: [],
     });
     const playground = new Playground();
@@ -177,8 +181,9 @@ describe("Playground named texture lifecycle", () => {
   });
 
   it("retains the previous asset when replacement validation fails", async () => {
-    wasm.textureDeclarations.mockReturnValue({
-      declarations: [declaration("grass")],
+    wasm.analyze.mockReturnValue({
+      textures: [declaration("grass")],
+      references_time: false,
       diags: [],
     });
     const playground = new Playground();
@@ -206,8 +211,9 @@ describe("Playground named texture lifecycle", () => {
   });
 
   it("does not commit a decoded upload after its declaration changes", async () => {
-    wasm.textureDeclarations.mockReturnValue({
-      declarations: [declaration("grass")],
+    wasm.analyze.mockReturnValue({
+      textures: [declaration("grass")],
+      references_time: false,
       diags: [],
     });
     let finishDecode!: (bitmap: ImageBitmap) => void;
@@ -226,8 +232,9 @@ describe("Playground named texture lifecycle", () => {
     );
     await vi.waitFor(() => expect(createImageBitmap).toHaveBeenCalledOnce());
 
-    wasm.textureDeclarations.mockReturnValue({
-      declarations: [{ ...declaration("grass"), width: 2 }],
+    wasm.analyze.mockReturnValue({
+      textures: [{ ...declaration("grass"), width: 2 }],
+      references_time: false,
       diags: [],
     });
     playground.source = "changed dimensions";
@@ -244,8 +251,9 @@ describe("Playground named texture lifecycle", () => {
   });
 
   it("revokes previews on rename, removal, replacement, draft reset, and teardown", async () => {
-    wasm.textureDeclarations.mockReturnValue({
-      declarations: [declaration("grass"), declaration("mask", 2)],
+    wasm.analyze.mockReturnValue({
+      textures: [declaration("grass"), declaration("mask", 2)],
+      references_time: false,
       diags: [],
     });
     const playground = new Playground();
@@ -278,8 +286,9 @@ describe("Playground named texture lifecycle", () => {
     const replacementUrl = playground.textureSlots[1].asset!.previewUrl;
     expect(wasm.revokeObjectURL).toHaveBeenCalledWith(maskUrl);
 
-    wasm.textureDeclarations.mockReturnValue({
-      declarations: [declaration("ground"), declaration("mask", 2)],
+    wasm.analyze.mockReturnValue({
+      textures: [declaration("ground"), declaration("mask", 2)],
+      references_time: false,
       diags: [],
     });
     playground.source = "renamed source";
@@ -320,8 +329,9 @@ describe("Playground named texture lifecycle", () => {
 
 describe("Playground PNG validation", () => {
   it("rejects bad signatures, per-file size, and decoded dimensions", async () => {
-    wasm.textureDeclarations.mockReturnValue({
-      declarations: [declaration("tex")],
+    wasm.analyze.mockReturnValue({
+      textures: [declaration("tex")],
+      references_time: false,
       diags: [],
     });
     const playground = new Playground();
@@ -348,8 +358,9 @@ describe("Playground PNG validation", () => {
 
   it("enforces the aggregate original-file limit before committing", async () => {
     const names = ["a", "b", "c", "d", "e"];
-    wasm.textureDeclarations.mockReturnValue({
-      declarations: names.map((name, index) => declaration(name, index + 1)),
+    wasm.analyze.mockReturnValue({
+      textures: names.map((name, index) => declaration(name, index + 1)),
+      references_time: false,
       diags: [],
     });
     const playground = new Playground();
@@ -377,8 +388,9 @@ describe("Playground PNG validation", () => {
 
 describe("Playground toy transitions", () => {
   it("keeps internal bin fixture decoding for exact named toy assets", async () => {
-    wasm.textureDeclarations.mockReturnValue({
-      declarations: [declaration("tex")],
+    wasm.analyze.mockReturnValue({
+      textures: [declaration("tex")],
+      references_time: false,
       diags: [],
     });
     const bytes = new Uint8Array(12);
@@ -411,8 +423,9 @@ describe("Playground toy transitions", () => {
       line: 2,
       msg: "duplicate texture declaration: tex",
     };
-    wasm.textureDeclarations.mockReturnValue({
-      declarations: [first, duplicate],
+    wasm.analyze.mockReturnValue({
+      textures: [first, duplicate],
+      references_time: false,
       diags: [duplicateDiag],
     });
     vi.stubGlobal(
@@ -437,8 +450,9 @@ describe("Playground toy transitions", () => {
   });
 
   it("keeps successful textures when another saved texture returns 404", async () => {
-    wasm.textureDeclarations.mockReturnValue({
-      declarations: [declaration("missing"), declaration("loaded", 2)],
+    wasm.analyze.mockReturnValue({
+      textures: [declaration("missing"), declaration("loaded", 2)],
+      references_time: false,
       diags: [],
     });
     vi.stubGlobal(
@@ -484,11 +498,12 @@ describe("Playground toy transitions", () => {
   });
 
   it("does not commit stale assets from an aborted multi-texture transition", async () => {
-    wasm.textureDeclarations.mockImplementation((source: string) => ({
-      declarations:
+    wasm.analyze.mockImplementation((source: string) => ({
+      textures:
         source === "stale source"
           ? [declaration("a"), declaration("b", 2)]
           : [],
+      references_time: false,
       diags: [],
     }));
     let resolveSecond!: (response: {
@@ -559,12 +574,11 @@ describe("Playground capture rendering", () => {
 
   it.each([
     {
-      result: { diags: [], is_time_variant: false, error: "render failed" },
+      result: { diags: [], error: "render failed" },
     },
     {
       result: {
         diags: [{ line: 1, msg: "render diagnostic" }],
-        is_time_variant: false,
         error: null,
       },
     },
@@ -577,12 +591,97 @@ describe("Playground capture rendering", () => {
   });
 });
 
+describe("Playground animation analysis", () => {
+  it("sets isAnimated from the analysis pass, not the render result", async () => {
+    wasm.analyze.mockReturnValue({
+      textures: [],
+      references_time: true,
+      diags: [],
+    });
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+    playground.source = "update { guRotate(model, time * 90, 0, 0, 1) }";
+    playground.reconcileTextureDeclarations();
+
+    expect(playground.isAnimated).toBe(true);
+  });
+
+  it("clears isAnimated when the source stops referencing time", async () => {
+    wasm.analyze.mockReturnValue({
+      textures: [],
+      references_time: true,
+      diags: [],
+    });
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+    playground.reconcileTextureDeclarations();
+    expect(playground.isAnimated).toBe(true);
+
+    wasm.analyze.mockReturnValue({
+      textures: [],
+      references_time: false,
+      diags: [],
+    });
+    playground.reconcileTextureDeclarations();
+
+    expect(playground.isAnimated).toBe(false);
+  });
+
+  it("keeps isAnimated stable across a failed render", async () => {
+    wasm.analyze.mockReturnValue({
+      textures: [],
+      references_time: true,
+      diags: [],
+    });
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+    playground.reconcileTextureDeclarations();
+    expect(playground.isAnimated).toBe(true);
+
+    // A failing render must no longer touch animation state.
+    wasm.render.mockReturnValue({ diags: [], error: "render failed" });
+    playground.run();
+
+    expect(playground.isAnimated).toBe(true);
+  });
+
+  it("re-analyzes on source assignment without an explicit reconcile call", async () => {
+    wasm.analyze.mockReturnValue({
+      textures: [],
+      references_time: true,
+      diags: [],
+    });
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+
+    playground.source = "update { guRotate(model, time * 90, 0, 0, 1) }";
+
+    expect(playground.isAnimated).toBe(true); // no reconcileTextureDeclarations() call needed
+  });
+
+  it("analyzes a source assigned before init once init completes", async () => {
+    wasm.analyze.mockReturnValue({
+      textures: [],
+      references_time: true,
+      diags: [],
+    });
+    const playground = new Playground();
+    playground.source = "update { guRotate(model, time * 90, 0, 0, 1) }"; // pre-init: guard skips
+    expect(playground.isAnimated).toBe(false);
+
+    await playground.init({} as HTMLCanvasElement); // catch-up block analyzes the pending source
+
+    expect(playground.isAnimated).toBe(true);
+  });
+});
+
 describe("Playground diagnostics", () => {
   it("blocks rendering and merges declaration then product-limit diagnostics", async () => {
-    wasm.textureDeclarations.mockReturnValue({
-      declarations: Array.from({ length: 9 }, (_, index) =>
+    wasm.analyze.mockReturnValue({
+      textures: Array.from({ length: 9 }, (_, index) =>
         declaration(`tex${index}`, index + 1),
       ),
+      references_time: false,
       diags: [{ line: 3, msg: "declaration diagnostic" }],
     });
     const playground = new Playground();
@@ -602,8 +701,9 @@ describe("Playground diagnostics", () => {
   });
 
   it("blocks rendering for an oversized declaration", async () => {
-    wasm.textureDeclarations.mockReturnValue({
-      declarations: [{ ...declaration("huge"), width: 513 }],
+    wasm.analyze.mockReturnValue({
+      textures: [{ ...declaration("huge"), width: 513 }],
+      references_time: false,
       diags: [],
     });
     const playground = new Playground();
@@ -623,13 +723,13 @@ describe("Playground diagnostics", () => {
 
   it("deduplicates an exact declaration and renderer diagnostic", async () => {
     const duplicate = { line: 3, msg: "same diagnostic" };
-    wasm.textureDeclarations.mockReturnValue({
-      declarations: [],
+    wasm.analyze.mockReturnValue({
+      textures: [],
+      references_time: false,
       diags: [duplicate],
     });
     wasm.render.mockReturnValue({
       diags: [duplicate, { line: 4, msg: "renderer only" }],
-      is_time_variant: false,
       error: null,
     });
     const playground = new Playground();

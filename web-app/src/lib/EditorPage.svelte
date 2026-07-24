@@ -38,7 +38,6 @@
       diagnostics={pg.diags}
       onrun={() => pg.run()}
       oninput={() => {
-        pg.reconcileTextureDeclarations();
         pg.scheduleAutoRun();
       }}
       bind:autoRun={pg.settings.autoRun}

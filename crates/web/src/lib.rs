@@ -35,8 +35,9 @@ struct TextureDeclOut {
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 #[derive(Serialize)]
-struct TextureDeclarationsOut {
-    declarations: Vec<TextureDeclOut>,
+struct AnalysisOut {
+    textures: Vec<TextureDeclOut>,
+    references_time: bool,
     diags: Vec<DiagOut>,
 }
 
@@ -53,7 +54,6 @@ struct TextureInputIn {
 #[derive(Serialize)]
 struct RenderOut {
     diags: Vec<DiagOut>,
-    is_time_variant: bool,
     /// Non-fatal runtime error (e.g. surface loss), distinct from the HLE diags.
     error: Option<String>,
 }
@@ -72,11 +72,11 @@ fn map_diags(diags: &[Diagnostic]) -> Vec<DiagOut> {
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-fn map_texture_declarations(source: &str) -> TextureDeclarationsOut {
-    let out = fast3d::asm::texture_declarations(source);
-    TextureDeclarationsOut {
-        declarations: out
-            .declarations
+fn map_analysis(source: &str) -> AnalysisOut {
+    let out = fast3d::asm::analyze(source);
+    AnalysisOut {
+        textures: out
+            .textures
             .into_iter()
             .map(|declaration| TextureDeclOut {
                 name: declaration.name,
@@ -86,6 +86,7 @@ fn map_texture_declarations(source: &str) -> TextureDeclarationsOut {
                 line: declaration.line,
             })
             .collect(),
+        references_time: out.references_time,
         diags: out
             .diagnostics
             .into_iter()
@@ -129,9 +130,9 @@ pub fn start() {
 }
 
 #[cfg(target_arch = "wasm32")]
-#[wasm_bindgen(js_name = textureDeclarations)]
-pub fn texture_declarations_js(source: &str) -> JsValue {
-    to_js(&map_texture_declarations(source))
+#[wasm_bindgen(js_name = analyze)]
+pub fn analyze_js(source: &str) -> JsValue {
+    to_js(&map_analysis(source))
 }
 
 /// The N64-machine boundary for web: an owned RDRAM image (the assembled DL).
@@ -187,14 +188,13 @@ impl Renderer {
             Err(error) => {
                 return to_js(&RenderOut {
                     diags: Vec::new(),
-                    is_time_variant: fast3d::asm::source_is_time_variant(source),
                     error: Some(format!("invalid texture inputs: {error}")),
                 });
             }
         };
         let borrowed = borrow_texture_inputs(&inputs);
-        let assembled = match fast3d::asm::assemble_at_with_textures(source, time, &borrowed) {
-            Ok(a) => a,
+        let image = match fast3d::asm::assemble_at_with_textures(source, time, &borrowed) {
+            Ok(image) => image,
             Err(diags) => {
                 return to_js(&RenderOut {
                     diags: diags
@@ -204,19 +204,17 @@ impl Renderer {
                             msg: d.msg,
                         })
                         .collect(),
-                    is_time_variant: fast3d::asm::source_is_time_variant(source),
                     error: None,
                 });
             }
         };
-        let is_time_variant = assembled.is_time_variant;
-        self.hw.rdram = assembled.image.rdram;
+        self.hw.rdram = image.rdram;
 
         let mut diags: Vec<Diagnostic> = Vec::new();
         self.inner.begin_frame();
         let summary = self.inner.process_dl(
             &self.hw,
-            assembled.image.entry_addr as u64,
+            image.entry_addr as u64,
             Microcode::F3dex2,
             &mut diags,
         );
@@ -225,7 +223,6 @@ impl Renderer {
         if !should_present(&summary) {
             return to_js(&RenderOut {
                 diags: diag_out,
-                is_time_variant,
                 error: None,
             });
         }
@@ -236,7 +233,6 @@ impl Renderer {
         };
         to_js(&RenderOut {
             diags: diag_out,
-            is_time_variant,
             error,
         })
     }
@@ -307,13 +303,20 @@ mod tests {
     }
 
     #[test]
-    fn declaration_output_preserves_names_formats_and_diagnostics() {
-        let out = map_texture_declarations(
+    fn analysis_output_preserves_names_formats_and_diagnostics() {
+        let out = map_analysis(
             "Texture grass = { 32, 16, RGBA16 }\ninvalid\nTexture mask = { 8, 8, IA8 }",
         );
-        assert_eq!(out.declarations[0].name, "grass");
-        assert_eq!(out.declarations[1].format, "IA8");
+        assert_eq!(out.textures[0].name, "grass");
+        assert_eq!(out.textures[1].format, "IA8");
         assert!(!out.diags.is_empty());
+    }
+
+    #[test]
+    fn analysis_reports_time_reference() {
+        let out =
+            map_analysis("Mtx m = identity()\nupdate {\n  guRotate(m, time * 90, 0, 0, 1)\n}\n");
+        assert!(out.references_time);
     }
 
     #[test]
