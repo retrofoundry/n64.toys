@@ -20,7 +20,7 @@
   {#if title}
     <header class="flex min-h-8 items-center border-b border-edge px-3 py-1.5">
       <h2 class="text-[11px] font-bold uppercase tracking-wide text-ink">{title}</h2>
-      {#if actions}<div class="ml-auto">{@render actions()}</div>{/if}
+      {#if actions}<div class="ml-auto flex items-center gap-2">{@render actions()}</div>{/if}
     </header>
   {/if}
   <div class={bodyClass}>{@render children()}</div>

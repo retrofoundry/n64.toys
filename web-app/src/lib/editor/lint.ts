@@ -17,11 +17,17 @@ const diagnosticsField = StateField.define<Diagnostic[]>({
 const n64Linter = linter((view): CMDiagnostic[] => {
   const diags = view.state.field(diagnosticsField);
   const lines = view.state.doc.lines;
-  return diags.map((d) => {
-    const n = Math.min(Math.max(d.line, 1), lines);
-    const line = view.state.doc.line(n);
-    return { from: line.from, to: line.to, severity: "error" as const, message: d.msg };
-  });
+  return diags
+    .filter((d) => d.kind === "src")
+    .map((d) => {
+      const line = view.state.doc.line(Math.min(Math.max(d.line, 1), lines));
+      return {
+        from: line.from,
+        to: line.to,
+        severity: "error" as const,
+        message: d.msg,
+      };
+    });
 });
 
 export function n64Lint(): Extension {

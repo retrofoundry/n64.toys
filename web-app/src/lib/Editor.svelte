@@ -9,6 +9,7 @@
   import { n64Theme } from "./editor/cm-theme";
   import { n64Lint, setDiagsEffect } from "./editor/lint";
   import Panel from "./ui/Panel.svelte";
+  import HelpDrawer from "./HelpDrawer.svelte";
   import type { Diagnostic } from "./playground.svelte";
 
   let {
@@ -16,17 +17,17 @@
     diagnostics,
     onrun,
     oninput,
-    autoRun = $bindable(false),
   }: {
     value: string;
     diagnostics: Diagnostic[];
     onrun: () => void;
     oninput?: () => void;
-    autoRun?: boolean;
   } = $props();
 
   let host: HTMLDivElement;
   let view: EditorView | undefined;
+  let helpOpen = $state(false);
+  let helpTrigger = $state<HTMLButtonElement | undefined>();
 
   onMount(() => {
     view = new EditorView({
@@ -79,6 +80,15 @@
 
 {#snippet actions()}
   <span class="ui-status text-ink-faint">⌘↵ run</span>
+  <button
+    type="button"
+    bind:this={helpTrigger}
+    aria-label="help"
+    aria-expanded={helpOpen}
+    title="How to write toys"
+    onclick={() => (helpOpen = !helpOpen)}
+    class="ui-button flex items-center justify-center px-2 py-[0.2rem] text-[11px] leading-none"
+  >?</button>
 {/snippet}
 
 <Panel title="source · gbi macros" {actions} class="flex flex-col" bodyClass="flex flex-1 flex-col">
@@ -87,17 +97,11 @@
     <button
       type="button"
       onclick={onrun}
-      disabled={autoRun}
+      title="Re-run now (⌘↵)"
       class="ui-button ui-button-primary flex min-h-8 items-center justify-center gap-1.5"
     ><RefreshCw size={13} strokeWidth={2.2} /> Run</button>
-    <button
-      type="button"
-      aria-pressed={autoRun}
-      onclick={() => (autoRun = !autoRun)}
-      title={autoRun ? "Hot reload on — re-runs on every edit" : "Hot reload off — press Run to apply edits"}
-      class="ui-button ml-auto flex min-h-8 items-center justify-center"
-    >
-      <span class={autoRun ? "text-n64-yellow" : "text-ink-dim"}>hot reload {autoRun ? "on" : "off"}</span>
-    </button>
+    <span class="ml-auto text-[11px] text-ink-faint">edits apply as you type</span>
   </div>
 </Panel>
+
+<HelpDrawer bind:open={helpOpen} returnFocus={helpTrigger} />

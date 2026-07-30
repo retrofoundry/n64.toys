@@ -37,6 +37,7 @@ type SavePlayground = Pick<
   | "description"
   | "textureSlots"
   | "settings"
+  | "hasRenderer"
   | "renderForCapture"
   | "newDraft"
   | "reconcileTextureDeclarations"
@@ -289,6 +290,12 @@ export class SaveController {
       if (invalidTexture) {
         this.#fail(
           `Texture '${invalidTexture.declaration.name}' must have a valid PNG before publishing.`,
+        );
+        return;
+      }
+      if (!this.pg.hasRenderer) {
+        this.#fail(
+          "Publishing needs a rendered thumbnail — WebGPU is unavailable in this browser.",
         );
         return;
       }

@@ -70,13 +70,13 @@ describe("EditorPage", () => {
     expect(location.hash).toBe("#new");
   });
 
-  it("schedules auto-run without explicitly reconciling source declarations", () => {
+  it("schedules a re-run without explicitly reconciling source declarations", () => {
     const pg = new Playground();
     const calls: string[] = [];
     vi.spyOn(pg, "reconcileTextureDeclarations").mockImplementation(() =>
       calls.push("reconcile"),
     );
-    vi.spyOn(pg, "scheduleAutoRun").mockImplementation(() =>
+    vi.spyOn(pg, "scheduleRun").mockImplementation(() =>
       calls.push("schedule"),
     );
     render(EditorPage, { pg, saveController });

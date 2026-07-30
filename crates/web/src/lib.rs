@@ -20,6 +20,8 @@ use web_sys::HtmlCanvasElement;
 #[derive(Serialize)]
 struct DiagOut {
     line: usize,
+    /// "src" = 1-based source line; "addr" = RDRAM byte address; "none" = no location.
+    kind: &'static str,
     msg: String,
 }
 
@@ -66,6 +68,7 @@ fn map_diags(diags: &[Diagnostic]) -> Vec<DiagOut> {
         .iter()
         .map(|d| DiagOut {
             line: d.at as usize,
+            kind: "addr",
             msg: d.kind.to_string(),
         })
         .collect()
@@ -92,6 +95,7 @@ fn map_analysis(source: &str) -> AnalysisOut {
             .into_iter()
             .map(|diag| DiagOut {
                 line: diag.line,
+                kind: if diag.line == 0 { "none" } else { "src" },
                 msg: diag.msg,
             })
             .collect(),
@@ -201,6 +205,7 @@ impl Renderer {
                         .into_iter()
                         .map(|d| DiagOut {
                             line: d.line,
+                            kind: if d.line == 0 { "none" } else { "src" },
                             msg: d.msg,
                         })
                         .collect(),
@@ -254,6 +259,27 @@ mod tests {
         }
     }
 
+    /// The starter seeds every new toy, so a regression here is the first thing a new user sees.
+    #[test]
+    fn starter_assembles_clean_at_rest_and_in_motion() {
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../web-app/src/lib/docs/starter.n64"
+        ));
+        for t in [0.0f32, 1.37f32] {
+            let image = fast3d::asm::assemble_at_with_textures(src, t, &[])
+                .unwrap_or_else(|d| panic!("starter must assemble at t={t}: {d:?}"));
+            assert!(image.entry_addr > 0);
+        }
+        let analysis = fast3d::asm::analyze(src);
+        assert!(
+            analysis.diagnostics.is_empty(),
+            "{:?}",
+            analysis.diagnostics
+        );
+        assert!(analysis.references_time, "starter must animate");
+    }
+
     #[test]
     fn should_present_gates_on_renderable_and_zero_errors() {
         assert!(
@@ -300,6 +326,26 @@ mod tests {
             (out[1].line, out[1].msg.as_str()),
             (0x1234, "unknown opcode 0xAB")
         );
+    }
+
+    #[test]
+    fn diag_kinds_discriminate_source_lines_from_addresses() {
+        // Assembler diag: real source line -> "src"; line 0 (no location) -> "none".
+        let out = map_analysis("this line does not parse\n");
+        assert!(out
+            .diags
+            .iter()
+            .all(|d| d.kind == "src" || d.kind == "none"));
+        assert!(out.diags.iter().any(|d| d.kind == "src" && d.line == 1));
+
+        // HLE diag: byte address -> "addr".
+        let hle = vec![Diagnostic {
+            at: 0x1234,
+            kind: DiagKind::UnknownOpcode(0xAB),
+        }];
+        let mapped = map_diags(&hle);
+        assert_eq!(mapped[0].kind, "addr");
+        assert_eq!(mapped[0].line, 0x1234);
     }
 
     #[test]

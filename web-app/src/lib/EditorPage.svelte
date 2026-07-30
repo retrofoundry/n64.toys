@@ -38,9 +38,8 @@
       diagnostics={pg.diags}
       onrun={() => pg.run()}
       oninput={() => {
-        pg.scheduleAutoRun();
+        pg.scheduleRun();
       }}
-      bind:autoRun={pg.settings.autoRun}
     />
   </div>
   <div class="editor-meta">

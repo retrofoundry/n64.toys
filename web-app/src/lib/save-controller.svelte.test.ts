@@ -50,9 +50,11 @@ function playground() {
     description: "description",
     textureSlots: [] as ReturnType<typeof slot>[],
     settings: { microcode: "F3DEX2" },
+    hasRenderer: true,
     renderForCapture: vi.fn(() => true),
     newDraft: vi.fn(async () => {
-      pg.source = "";
+      // Mirrors the real newDraft, which seeds the commented starter template.
+      pg.source = "// starter\ngsSP1Triangle(0, 1, 2, 0)\ngsSPEndDisplayList()\n";
       pg.title = "";
       pg.description = "";
       pg.textureSlots = [];
@@ -175,6 +177,18 @@ describe("SaveController", () => {
     expect(value.controller.status).toBe("dirty");
   });
 
+  it("treats a freshly seeded starter draft as clean until it is edited", async () => {
+    const value = controller();
+    await value.pg.newDraft();
+    value.controller.adoptLoadedToy(null);
+
+    expect(value.pg.source).toContain("gsSP1Triangle");
+    expect(value.controller.status).not.toBe("dirty");
+
+    value.pg.source = `${value.pg.source}\n`;
+    expect(value.controller.status).toBe("dirty");
+  });
+
   it("creates new drafts, updates owned toys, and forks other users' toys", async () => {
     const created = controller();
     await created.controller.save();
@@ -259,6 +273,18 @@ describe("SaveController", () => {
     value.controller.setVisibility("public");
     await value.controller.save();
     expect(value.controller.errorMessage).toMatch(/render/i);
+    expect(value.transport.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses public saves without a renderer, naming the thumbnail reason", async () => {
+    const pg = playground();
+    pg.hasRenderer = false;
+    const value = controller(pg);
+    value.controller.setVisibility("public");
+    await value.controller.save();
+    expect(value.controller.status).toBe("error");
+    expect(value.controller.errorMessage).toMatch(/thumbnail/i);
+    expect(value.controller.errorMessage).toMatch(/WebGPU/i);
     expect(value.transport.create).not.toHaveBeenCalled();
   });
 

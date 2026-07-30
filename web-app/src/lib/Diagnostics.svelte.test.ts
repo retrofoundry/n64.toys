@@ -12,8 +12,19 @@ describe("Diagnostics", () => {
   });
 
   it("labels diagnostic failures with text and location", () => {
-    render(Diagnostics, { diagnostics: [{ line: 7, msg: "unknown macro" }] });
+    render(Diagnostics, {
+      diagnostics: [{ line: 7, kind: "src", msg: "unknown macro" }],
+    });
     expect(screen.getByText("line 7")).toBeInTheDocument();
     expect(screen.getByText("unknown macro")).toBeInTheDocument();
+  });
+
+  it("renders address diagnostics as hex addresses, not lines", () => {
+    render(Diagnostics, {
+      diagnostics: [
+        { line: 0x1234, kind: "addr", msg: "unknown opcode 0xAB" },
+      ],
+    });
+    expect(screen.getByText(/addr 0x1234/i)).toBeTruthy();
   });
 });

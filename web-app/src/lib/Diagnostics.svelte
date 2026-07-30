@@ -16,9 +16,13 @@
     {#if diagnostics.length === 0}
       <div class="text-n64-green text-xs">no diagnostics</div>
     {:else}
-      {#each diagnostics as d (`${d.line}:${d.msg}`)}
+      {#each diagnostics as d (`${d.kind}:${d.line}:${d.msg}`)}
         <div class="flex gap-2.5 border border-edge border-l-[3px] border-l-n64-red bg-raised px-2.5 py-1.5 text-xs">
-          <span class="text-n64-yellow shrink-0">line {d.line}</span>
+          {#if d.kind === "src"}
+            <span class="text-n64-yellow shrink-0">line {d.line}</span>
+          {:else if d.kind === "addr"}
+            <span class="text-n64-yellow shrink-0">addr 0x{d.line.toString(16)}</span>
+          {/if}
           <span class="text-ink">{d.msg}</span>
         </div>
       {/each}

@@ -1,4 +1,5 @@
 import init, { Renderer, analyze } from "../wasm/n64_toys.js";
+import STARTER_SOURCE from "./docs/starter.n64?raw";
 import type { Toy, ToyTexture } from "../toys/types";
 import { parseBin } from "./texture-bin";
 import { emaFps } from "./fps";
@@ -13,16 +14,24 @@ import {
   type TextureSlot,
 } from "./texture-inputs";
 
-export type Diagnostic = { line: number; msg: string };
+export type Diagnostic = {
+  line: number;
+  kind: "src" | "addr" | "none";
+  msg: string;
+};
 export type Settings = {
-  autoRun: boolean;
   microcode: string;
 };
 
 function sameDiags(a: Diagnostic[], b: Diagnostic[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
-    if (a[i].line !== b[i].line || a[i].msg !== b[i].msg) return false;
+    if (
+      a[i].line !== b[i].line ||
+      a[i].kind !== b[i].kind ||
+      a[i].msg !== b[i].msg
+    )
+      return false;
   }
   return true;
 }
@@ -69,7 +78,9 @@ function dedupeDiags(diags: Diagnostic[]): Diagnostic[] {
     if (
       !unique.some(
         (candidate) =>
-          candidate.line === diag.line && candidate.msg === diag.msg,
+          candidate.line === diag.line &&
+          candidate.kind === diag.kind &&
+          candidate.msg === diag.msg,
       )
     ) {
       unique.push(diag);
@@ -185,9 +196,12 @@ export class Playground {
   description = $state("");
   forkOf: string | undefined;
   settings = $state<Settings>({
-    autoRun: false,
     microcode: "F3DEX2",
   });
+  rendererState = $state<
+    "pending" | "ready" | "unsupported" | "failed"
+  >("pending");
+  rendererError = $state<string | undefined>(undefined);
 
   // transport
   isAnimated = $state(false);
@@ -205,22 +219,69 @@ export class Playground {
   #lastFpsPushMs = 0;
 
   #renderer: Renderer | undefined;
-  #initPromise: Promise<void> | undefined;
+  #analysisInit: Promise<void> | undefined;
+  #rendererInit: Promise<void> | undefined;
+  #rendererCanvas: HTMLCanvasElement | undefined;
   #debounce: ReturnType<typeof setTimeout> | undefined;
   #renderDiags: Diagnostic[] = [];
   #renderTextures: readonly RenderTextureSnapshot[] = [];
 
-  async init(canvas: HTMLCanvasElement): Promise<void> {
-    if (!this.#initPromise) this.#initPromise = this.#initialize(canvas);
-    await this.#initPromise;
+  get hasRenderer(): boolean {
+    return this.#renderer !== undefined;
   }
 
-  async #initialize(canvas: HTMLCanvasElement): Promise<void> {
-    await init({
-      module_or_path: new URL("../wasm/n64_toys_bg.wasm", import.meta.url),
-    });
-    this.#analysisReady = true;
-    this.#renderer = await Renderer.init(canvas);
+  async #initAnalysis(): Promise<void> {
+    if (!this.#analysisInit) {
+      this.#analysisInit = init({
+        module_or_path: new URL("../wasm/n64_toys_bg.wasm", import.meta.url),
+      })
+        .then(() => {
+          this.#analysisReady = true;
+        })
+        .catch((error) => {
+          // Analysis failure is fatal to this attempt, but clear the cache so re-entry retries.
+          this.#analysisInit = undefined;
+          throw error;
+        });
+    }
+    await this.#analysisInit;
+  }
+
+  async #initRenderer(canvas: HTMLCanvasElement): Promise<void> {
+    if (this.#rendererCanvas !== canvas) {
+      this.#rendererInit = undefined;
+      this.#renderer = undefined;
+    }
+    if (!this.#rendererInit) {
+      this.#rendererCanvas = canvas;
+      this.rendererState = "pending";
+      this.rendererError = undefined;
+      this.#rendererInit = Renderer.init(canvas).then(
+        (renderer) => {
+          this.#renderer = renderer;
+          this.rendererState = "ready";
+          this.rendererError = undefined;
+          if (this.source) this.run();
+        },
+        (error) => {
+          this.#rendererInit = undefined;
+          this.#renderer = undefined;
+          this.rendererState = "failed";
+          this.rendererError =
+            error instanceof Error ? error.message : String(error);
+        },
+      );
+    }
+    await this.#rendererInit;
+  }
+
+  async init(canvas: HTMLCanvasElement): Promise<void> {
+    await this.#initAnalysis();
+    if (typeof navigator === "undefined" || !("gpu" in navigator)) {
+      this.rendererState = "unsupported";
+    } else {
+      await this.#initRenderer(canvas);
+    }
     this.status = "ready";
     if (this.source) {
       this.reconcileTextureDeclarations();
@@ -228,11 +289,16 @@ export class Playground {
     }
   }
 
+  async retryRenderer(): Promise<void> {
+    if (this.rendererState !== "failed" || !this.#rendererCanvas) return;
+    await this.#initRenderer(this.#rendererCanvas);
+  }
+
   #preflightDiags(): Diagnostic[] {
     return [
       ...this.declarationDiags,
       ...(this.textureLimitError
-        ? [{ line: 0, msg: this.textureLimitError }]
+        ? [{ line: 0, kind: "none" as const, msg: this.textureLimitError }]
         : []),
     ];
   }
@@ -439,7 +505,7 @@ export class Playground {
     this.#applyRenderResult(this.#renderCurrentSnapshot(t));
   }
 
-  /** One-shot render at the current time (used by RUN button, autoRun debounce, init). Never auto-plays. */
+  /** One-shot render at the current time (used by RUN button, the edit debounce, init). Never auto-plays. */
   run(): void {
     this.renderFrame(this.time);
   }
@@ -538,9 +604,14 @@ export class Playground {
     this.pause();
     this.#revokeAssets(this.textureSlots);
     this.#setTextureSlots([]);
+    this.#renderer = undefined;
+    this.#rendererInit = undefined;
+    this.#rendererCanvas = undefined;
+    this.rendererState = "pending";
+    this.rendererError = undefined;
   }
 
-  /** Reset the editor to a blank, unrendered draft. */
+  /** Reset the editor to a fresh draft seeded with the starter toy. */
   async newDraft({ signal }: TransitionOptions = {}): Promise<void> {
     signal?.throwIfAborted();
     this.pause();
@@ -561,6 +632,10 @@ export class Playground {
     this.errored = false;
     this.time = 0;
     this.#baseTime = 0;
+    // Seed the starter through the setter so analysis drives isAnimated and the texture slots.
+    this.source = STARTER_SOURCE;
+    this.run(); // one-shot render at t=0, so reduced-motion users still see the starter
+    if (this.isAnimated && !prefersReducedMotion()) this.play();
   }
 
   /** Load a toy into the editor as a transient Draft (the editor never mutates the persisted Toy). */
@@ -653,8 +728,8 @@ export class Playground {
     if (this.isAnimated && !prefersReducedMotion()) this.play();
   }
 
-  scheduleAutoRun(): void {
-    if (!this.settings.autoRun) return;
+  /** Debounced re-render after an edit. Edits always apply; there is no gate. */
+  scheduleRun(): void {
     clearTimeout(this.#debounce);
     this.#debounce = setTimeout(() => this.run(), 300);
   }

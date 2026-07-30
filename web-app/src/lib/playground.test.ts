@@ -2,16 +2,22 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const wasm = vi.hoisted(() => ({
-  render: vi.fn(),
-  analyze: vi.fn(),
-  createObjectURL: vi.fn(),
-  revokeObjectURL: vi.fn(),
-}));
+const wasm = vi.hoisted(() => {
+  const render = vi.fn();
+  const renderer = { render };
+  return {
+    render,
+    renderer,
+    rendererInit: vi.fn(async () => renderer),
+    analyze: vi.fn(),
+    createObjectURL: vi.fn(),
+    revokeObjectURL: vi.fn(),
+  };
+});
 
 vi.mock("../wasm/n64_toys.js", () => ({
   default: vi.fn(async () => undefined),
-  Renderer: { init: vi.fn(async () => ({ render: wasm.render })) },
+  Renderer: { init: wasm.rendererInit },
   analyze: wasm.analyze,
 }));
 
@@ -62,6 +68,7 @@ function toy(slug: string, source: string, textures: Toy["textures"]): Toy {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  wasm.rendererInit.mockResolvedValue(wasm.renderer);
   wasm.render.mockReturnValue({
     diags: [],
     // serde-wasm-bindgen serializes Rust `None` to `undefined`, not `null`, so a
@@ -74,6 +81,7 @@ beforeEach(() => {
     references_time: false,
     diags: [],
   });
+  vi.stubGlobal("navigator", { gpu: {} });
   let nextUrl = 1;
   wasm.createObjectURL.mockImplementation(() => `blob:${nextUrl++}`);
 
@@ -115,6 +123,65 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe("Playground initialization", () => {
+  it("loads analysis and reports unsupported without WebGPU, never throwing", async () => {
+    wasm.analyze.mockReturnValue({
+      textures: [declaration("tex")],
+      references_time: false,
+      diags: [],
+    });
+    vi.stubGlobal("navigator", {});
+    const playground = new Playground();
+
+    await playground.init({} as HTMLCanvasElement);
+
+    expect(playground.rendererState).toBe("unsupported");
+    playground.source = "Texture tex = { 8, 8, RGBA16 }\n";
+    expect(playground.textureSlots.length).toBe(1);
+  });
+
+  it("records renderer failure as state and retries on demand", async () => {
+    wasm.rendererInit.mockRejectedValueOnce(new Error("no adapter"));
+    const playground = new Playground();
+
+    await playground.init({} as HTMLCanvasElement);
+
+    expect(playground.rendererState).toBe("failed");
+    expect(playground.rendererError).toContain("no adapter");
+    expect(playground.hasRenderer).toBe(false);
+
+    wasm.rendererInit.mockResolvedValueOnce(wasm.renderer);
+    await playground.retryRenderer();
+
+    expect(playground.rendererState).toBe("ready");
+    expect(playground.rendererError).toBeUndefined();
+    expect(playground.hasRenderer).toBe(true);
+  });
+
+  it("renders the current source when the renderer becomes ready late", async () => {
+    wasm.rendererInit.mockRejectedValueOnce(new Error("no adapter"));
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+    playground.source = "Mtx m = identity()\n";
+
+    await playground.retryRenderer();
+
+    expect(wasm.render).toHaveBeenCalled();
+  });
+
+  it("resets renderer state on teardown", async () => {
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+    expect(playground.hasRenderer).toBe(true);
+
+    playground.teardown();
+
+    expect(playground.rendererState).toBe("pending");
+    expect(playground.rendererError).toBeUndefined();
+    expect(playground.hasRenderer).toBe(false);
+  });
+});
 
 describe("Playground named texture lifecycle", () => {
   it("initializes without creating an implicit white texture", async () => {
@@ -325,6 +392,70 @@ describe("Playground named texture lifecycle", () => {
     expect(wasm.revokeObjectURL).toHaveBeenCalledWith("blob:draft");
     expect(playground.textureSlots).toEqual([]);
   });
+
+  it("re-runs a paused edit on the debounce — edits always apply, no toggle", async () => {
+    vi.useFakeTimers();
+    try {
+      const playground = new Playground();
+      await playground.init({} as HTMLCanvasElement);
+      playground.pause();
+      wasm.render.mockClear();
+
+      playground.source = "// edited while paused\n";
+      playground.scheduleRun();
+      expect(wasm.render).not.toHaveBeenCalled(); // debounced, not immediate
+      vi.advanceTimersByTime(300);
+
+      expect(wasm.render).toHaveBeenCalled();
+      expect(wasm.render.mock.calls[0][0]).toContain("edited while paused");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("seeds a new draft with the starter and drives isAnimated from its analysis", async () => {
+    wasm.analyze.mockReturnValue({
+      textures: [],
+      references_time: true,
+      diags: [],
+    });
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+
+    await playground.newDraft();
+
+    expect(playground.source).toContain("gsSP1Triangle");
+    expect(playground.source).toContain("update {");
+    expect(playground.isAnimated).toBe(true);
+  });
+
+  it("autoplays an animated new draft, but not under prefers-reduced-motion", async () => {
+    wasm.analyze.mockReturnValue({
+      textures: [],
+      references_time: true,
+      diags: [],
+    });
+    // jsdom has no matchMedia, so stub it explicitly for both branches.
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: false,
+      media: query,
+    }));
+    const moving = new Playground();
+    await moving.init({} as HTMLCanvasElement);
+    await moving.newDraft();
+    expect(moving.playing).toBe(true);
+
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+    }));
+    const still = new Playground();
+    await still.init({} as HTMLCanvasElement);
+    await still.newDraft();
+    expect(still.playing).toBe(false);
+    // The first frame is still drawn — reduced motion means static, not blank.
+    expect(wasm.render).toHaveBeenCalled();
+  });
 });
 
 describe("Playground PNG validation", () => {
@@ -421,6 +552,7 @@ describe("Playground toy transitions", () => {
     const duplicate = { ...first, width: 2, line: 2 };
     const duplicateDiag = {
       line: 2,
+      kind: "src" as const,
       msg: "duplicate texture declaration: tex",
     };
     wasm.analyze.mockReturnValue({
@@ -578,7 +710,7 @@ describe("Playground capture rendering", () => {
     },
     {
       result: {
-        diags: [{ line: 1, msg: "render diagnostic" }],
+        diags: [{ line: 1, kind: "src" as const, msg: "render diagnostic" }],
         error: null,
       },
     },
@@ -682,7 +814,9 @@ describe("Playground diagnostics", () => {
         declaration(`tex${index}`, index + 1),
       ),
       references_time: false,
-      diags: [{ line: 3, msg: "declaration diagnostic" }],
+      diags: [
+        { line: 3, kind: "src" as const, msg: "declaration diagnostic" },
+      ],
     });
     const playground = new Playground();
     await playground.init({} as HTMLCanvasElement);
@@ -715,21 +849,28 @@ describe("Playground diagnostics", () => {
 
     expect(wasm.render).not.toHaveBeenCalled();
     expect(playground.diags).toEqual([
-      { line: 0, msg: "huge exceeds 512x512" },
+      { line: 0, kind: "none", msg: "huge exceeds 512x512" },
     ]);
     expect(playground.status).toBe("1 diagnostic(s)");
     expect(playground.errored).toBe(true);
   });
 
   it("deduplicates an exact declaration and renderer diagnostic", async () => {
-    const duplicate = { line: 3, msg: "same diagnostic" };
+    const duplicate = {
+      line: 3,
+      kind: "src" as const,
+      msg: "same diagnostic",
+    };
     wasm.analyze.mockReturnValue({
       textures: [],
       references_time: false,
       diags: [duplicate],
     });
     wasm.render.mockReturnValue({
-      diags: [duplicate, { line: 4, msg: "renderer only" }],
+      diags: [
+        duplicate,
+        { line: 4, kind: "src" as const, msg: "renderer only" },
+      ],
       error: null,
     });
     const playground = new Playground();
@@ -742,7 +883,7 @@ describe("Playground diagnostics", () => {
     expect(wasm.render).toHaveBeenCalledOnce();
     expect(playground.diags).toEqual([
       duplicate,
-      { line: 4, msg: "renderer only" },
+      { line: 4, kind: "src", msg: "renderer only" },
     ]);
   });
 });

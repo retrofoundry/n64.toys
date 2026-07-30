@@ -27,19 +27,23 @@
     <div class="flex items-center gap-3 px-3.5 py-2.5 border-t border-edge">
       {#if pg.playing}
         <button type="button" onclick={() => pg.pause()} title="Pause" aria-label="Pause"
+          disabled={!pg.hasRenderer}
           class="ui-button flex min-h-8 items-center justify-center">
           <Pause size={15} fill="currentColor" strokeWidth={0} /></button>
       {:else}
         <button type="button" onclick={() => pg.play()} title="Play" aria-label="Play"
+          disabled={!pg.hasRenderer}
           class="ui-button ui-button-primary flex min-h-8 items-center justify-center">
           <Play size={15} fill="currentColor" strokeWidth={0} /></button>
       {/if}
       <button type="button" onclick={() => pg.reset()} title="Reset" aria-label="Reset"
+        disabled={!pg.hasRenderer}
         class="ui-button flex min-h-8 items-center justify-center">
         <RotateCcw size={15} strokeWidth={2} /></button>
       <input
         class="scrub flex-1"
         type="range" min="0" max={pg.scrubMax} step="0.01" value={pg.time}
+        disabled={!pg.hasRenderer}
         oninput={(e) => pg.seek(parseFloat((e.currentTarget as HTMLInputElement).value))}
         aria-label="Time"
       />
