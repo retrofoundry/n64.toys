@@ -10,6 +10,7 @@ export class Renderer {
      * Assemble the source with texture inputs, interpret it, and draw to the canvas.
      */
     render(source: string, time: number, textures: any): any;
+    shutdown(): void;
 }
 
 export function analyze(source: string): any;
@@ -24,6 +25,7 @@ export interface InitOutput {
     readonly analyze: (a: number, b: number) => any;
     readonly renderer_init: (a: any) => any;
     readonly renderer_render: (a: number, b: number, c: number, d: number, e: any) => any;
+    readonly renderer_shutdown: (a: number) => void;
     readonly start: () => void;
     readonly wasm_bindgen__closure__destroy__h0935b00e02a5d6d9: (a: number, b: number) => void;
     readonly wasm_bindgen__convert__closures_____invoke__h80b894678d38979c: (a: number, b: number, c: any, d: any) => void;

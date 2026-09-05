@@ -37,6 +37,7 @@ type SavePlayground = Pick<
   | "description"
   | "textureSlots"
   | "settings"
+  | "diags"
   | "hasRenderer"
   | "renderForCapture"
   | "newDraft"
@@ -300,7 +301,11 @@ export class SaveController {
         return;
       }
       if (!this.pg.renderForCapture()) {
-        this.#fail("Fix render diagnostics before publishing.");
+        this.#fail(
+          this.pg.diags.length === 0
+            ? "Nothing was drawn. Fix render diagnostics before publishing."
+            : "Fix render diagnostics before publishing.",
+        );
         return;
       }
       const canvas = this.#getCanvas();

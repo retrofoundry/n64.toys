@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { parseTextureDeclarations } from "./declarations.js";
 
@@ -55,33 +57,58 @@ describe("parseTextureDeclarations", () => {
     ]);
   });
 
-  it("stays aligned with wasm textureDeclarations for representative toy source", () => {
-    const representativeToySource = `
-Texture checker = { 32, 32, RGBA16 }
-Texture intensity_map = { 64, 16, I8 }
+  it("parses a hexadecimal texture width", () => {
+    expect(
+      parseTextureDeclarations("Texture grass = { 0x20, 16, RGBA16 }"),
+    ).toEqual([{ name: "grass", width: 32, height: 16, format: "RGBA16" }]);
+  });
 
-Gfx display_list[] = {
-  gsDPSetTextureImage(G_IM_FMT_RGBA, G_IM_SIZ_16b, 32, checker),
-  gsDPLoadTextureBlock(intensity_map, G_IM_FMT_I, G_IM_SIZ_8b, 64, 16, 0,
-    G_TX_WRAP, G_TX_WRAP, 6, 4, G_TX_NOLOD, G_TX_NOLOD),
-  gsSPEndDisplayList(),
-};`;
+  // Computed specifier: the glue lives in web-app, which the server Docker build never copies.
+  const wasmDir = new URL("../../../web-app/src/wasm/", import.meta.url);
+  let analyze: (source: string) => { textures: unknown[] };
 
-    // This hard-coded set must match the Rust/wasm textureDeclarations output
-    // for the exact source above; update both sides together if the grammar moves.
-    expect(parseTextureDeclarations(representativeToySource)).toEqual([
-      {
-        name: "checker",
-        width: 32,
-        height: 32,
-        format: "RGBA16",
-      },
-      {
-        name: "intensity_map",
-        width: 64,
-        height: 16,
-        format: "I8",
-      },
-    ]);
+  beforeAll(async () => {
+    const glue = await import(fileURLToPath(new URL("n64_toys.js", wasmDir)));
+    glue.initSync({
+      module: readFileSync(new URL("n64_toys_bg.wasm", wasmDir)),
+    });
+    analyze = glue.analyze;
+  });
+
+  it.each([
+    ["decimal", "Texture grass = { 32, 16, RGBA16 }"],
+    ["lowercase hex prefix", "Texture grass = { 0x20, 0x10, RGBA16 }"],
+    ["uppercase hex prefix", "Texture grass = { 0X20, 0X10, RGBA16 }"],
+    ["mixed-case hex digits", "Texture grass = { 0xaB, 0XcD, RGBA16 }"],
+    [
+      "extra whitespace",
+      "  Texture   grass  =  {   32  ,   16  ,   RGBA16   }  ",
+    ],
+    ["tabs", "Texture\tgrass = {\t32\t,\t16\t,\tRGBA16\t}"],
+    ["trailing comment", "Texture grass = { 32, 16, RGBA16 } // grass texture"],
+    ...["RGBA16", "RGBA32", "I4", "I8", "IA4", "IA8", "IA16", "CI4", "CI8"].map(
+      (format) => [format, `Texture grass = { 32, 16, ${format} }`],
+    ),
+    [
+      "duplicate name",
+      "Texture grass = { 8, 8, I8 }\nTexture grass = { 16, 16, RGBA16 }",
+    ],
+  ])("matches wasm analysis for %s", (_name, source) => {
+    const textures = analyze(source).textures as {
+      name: string;
+      width: number;
+      height: number;
+      format: string;
+      line: number;
+    }[];
+    expect(parseTextureDeclarations(source)).toEqual(
+      textures.map(({ name, width, height, format }) => ({
+        name,
+        width,
+        height,
+        format,
+      })),
+    );
+    expect(textures.length).toBeGreaterThan(0);
   });
 });

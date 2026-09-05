@@ -4,9 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const wasm = vi.hoisted(() => {
   const render = vi.fn();
-  const renderer = { render };
+  const shutdown = vi.fn();
+  const renderer = { render, shutdown };
   return {
     render,
+    shutdown,
     renderer,
     rendererInit: vi.fn(async () => renderer),
     analyze: vi.fn(),
@@ -75,6 +77,7 @@ beforeEach(() => {
     // clean render's error is `undefined`. Mirror that here so capture/publish
     // gating is tested against the real shape.
     error: undefined,
+    presented: true,
   });
   wasm.analyze.mockReturnValue({
     textures: [],
@@ -177,10 +180,97 @@ describe("Playground initialization", () => {
 
     playground.teardown();
 
+    expect(wasm.shutdown).toHaveBeenCalledOnce();
     expect(playground.rendererState).toBe("pending");
     expect(playground.rendererError).toBeUndefined();
     expect(playground.hasRenderer).toBe(false);
   });
+});
+
+describe("Playground renderer lifetime", () => {
+  function pendingRenderer() {
+    let resolve!: (renderer: typeof wasm.renderer) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<typeof wasm.renderer>((onResolve, onReject) => {
+      resolve = onResolve;
+      reject = onReject;
+    });
+    wasm.rendererInit.mockReturnValueOnce(promise);
+    return { resolve, reject };
+  }
+
+  it("shuts down the old renderer before initializing a different canvas", async () => {
+    const playground = new Playground();
+    const firstCanvas = {} as HTMLCanvasElement;
+    await playground.init(firstCanvas);
+    await playground.init(firstCanvas);
+    expect(wasm.shutdown).not.toHaveBeenCalled();
+    wasm.rendererInit.mockImplementationOnce(async () => {
+      expect(wasm.shutdown).toHaveBeenCalledOnce();
+      return wasm.renderer;
+    });
+
+    await playground.init({} as HTMLCanvasElement);
+
+    expect(playground.hasRenderer).toBe(true);
+    expect(playground.rendererState).toBe("ready");
+  });
+
+  it("shuts down a late renderer after teardown without installing it", async () => {
+    const pending = pendingRenderer();
+    const playground = new Playground();
+    const init = playground.init({} as HTMLCanvasElement);
+    await vi.waitFor(() => expect(wasm.rendererInit).toHaveBeenCalledOnce());
+    playground.teardown();
+    pending.resolve(wasm.renderer);
+    await init;
+
+    expect(wasm.shutdown).toHaveBeenCalledOnce();
+    expect(playground.hasRenderer).toBe(false);
+    expect(playground.rendererState).toBe("pending");
+    expect(playground.renderForCapture()).toBe(false);
+    expect(wasm.render).not.toHaveBeenCalled();
+  });
+
+  it("shuts down a stale canvas renderer and keeps the current renderer", async () => {
+    const pending = pendingRenderer();
+    const playground = new Playground();
+    const firstInit = playground.init({} as HTMLCanvasElement);
+    await vi.waitFor(() => expect(wasm.rendererInit).toHaveBeenCalledOnce());
+    const current = {
+      render: vi.fn(() => ({ diags: [], presented: true, error: undefined })),
+      shutdown: vi.fn(),
+    };
+    wasm.rendererInit.mockResolvedValueOnce(current);
+    await playground.init({} as HTMLCanvasElement);
+    pending.resolve(wasm.renderer);
+    await firstInit;
+
+    expect(wasm.shutdown).toHaveBeenCalledOnce();
+    expect(current.shutdown).not.toHaveBeenCalled();
+    expect(playground.rendererState).toBe("ready");
+    expect(playground.renderForCapture()).toBe(true);
+    expect(current.render).toHaveBeenCalledOnce();
+    expect(wasm.render).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "ignores late init rejection after teardown (reinitialize: %s)",
+    async (reinitialize) => {
+      const pending = pendingRenderer();
+      const playground = new Playground();
+      const init = playground.init({} as HTMLCanvasElement);
+      await vi.waitFor(() => expect(wasm.rendererInit).toHaveBeenCalledOnce());
+      playground.teardown();
+      if (reinitialize) await playground.init({} as HTMLCanvasElement);
+      pending.reject(new Error("stale failure"));
+      await init;
+
+      expect(playground.rendererState).toBe(reinitialize ? "ready" : "pending");
+      expect(playground.hasRenderer).toBe(reinitialize);
+      expect(playground.rendererError).toBeUndefined();
+    },
+  );
 });
 
 describe("Playground named texture lifecycle", () => {
@@ -553,6 +643,7 @@ describe("Playground toy transitions", () => {
     const duplicateDiag = {
       line: 2,
       kind: "src" as const,
+      severity: "error" as const,
       msg: "duplicate texture declaration: tex",
     };
     wasm.analyze.mockReturnValue({
@@ -706,12 +797,20 @@ describe("Playground capture rendering", () => {
 
   it.each([
     {
-      result: { diags: [], error: "render failed" },
+      result: { diags: [], presented: false, error: "render failed" },
     },
     {
       result: {
-        diags: [{ line: 1, kind: "src" as const, msg: "render diagnostic" }],
+        diags: [
+          {
+            line: 1,
+            kind: "src" as const,
+            severity: "error" as const,
+            msg: "render diagnostic",
+          },
+        ],
         error: null,
+        presented: false,
       },
     },
   ])("returns false for an unclean capture render", async ({ result }) => {
@@ -771,7 +870,11 @@ describe("Playground animation analysis", () => {
     expect(playground.isAnimated).toBe(true);
 
     // A failing render must no longer touch animation state.
-    wasm.render.mockReturnValue({ diags: [], error: "render failed" });
+    wasm.render.mockReturnValue({
+      diags: [],
+      presented: false,
+      error: "render failed",
+    });
     playground.run();
 
     expect(playground.isAnimated).toBe(true);
@@ -815,7 +918,12 @@ describe("Playground diagnostics", () => {
       ),
       references_time: false,
       diags: [
-        { line: 3, kind: "src" as const, msg: "declaration diagnostic" },
+        {
+          line: 3,
+          kind: "src" as const,
+          severity: "error" as const,
+          msg: "declaration diagnostic",
+        },
       ],
     });
     const playground = new Playground();
@@ -849,7 +957,12 @@ describe("Playground diagnostics", () => {
 
     expect(wasm.render).not.toHaveBeenCalled();
     expect(playground.diags).toEqual([
-      { line: 0, kind: "none", msg: "huge exceeds 512x512" },
+      {
+        line: 0,
+        kind: "none",
+        severity: "error" as const,
+        msg: "huge exceeds 512x512",
+      },
     ]);
     expect(playground.status).toBe("1 diagnostic(s)");
     expect(playground.errored).toBe(true);
@@ -859,6 +972,7 @@ describe("Playground diagnostics", () => {
     const duplicate = {
       line: 3,
       kind: "src" as const,
+      severity: "error" as const,
       msg: "same diagnostic",
     };
     wasm.analyze.mockReturnValue({
@@ -869,9 +983,15 @@ describe("Playground diagnostics", () => {
     wasm.render.mockReturnValue({
       diags: [
         duplicate,
-        { line: 4, kind: "src" as const, msg: "renderer only" },
+        {
+          line: 4,
+          kind: "src" as const,
+          severity: "error" as const,
+          msg: "renderer only",
+        },
       ],
       error: null,
+      presented: false,
     });
     const playground = new Playground();
     await playground.init({} as HTMLCanvasElement);
@@ -883,7 +1003,107 @@ describe("Playground diagnostics", () => {
     expect(wasm.render).toHaveBeenCalledOnce();
     expect(playground.diags).toEqual([
       duplicate,
-      { line: 4, kind: "src", msg: "renderer only" },
+      {
+        line: 4,
+        kind: "src",
+        severity: "error" as const,
+        msg: "renderer only",
+      },
     ]);
+  });
+});
+
+describe("Playground frame presentation", () => {
+  it("captures warning-only frames and keeps the playback clock running", async () => {
+    wasm.render.mockReturnValue({
+      diags: [
+        {
+          line: 32,
+          kind: "addr",
+          severity: "warn",
+          msg: "render mode never set",
+        },
+      ],
+      presented: true,
+      error: undefined,
+    });
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+    expect(playground.renderForCapture()).toBe(true);
+    expect(playground.status).toBe("drew scene, 1 warning(s)");
+    expect(playground.errored).toBe(false);
+
+    let frame!: FrameRequestCallback;
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback) => {
+        frame = callback;
+        return 1;
+      }),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    let now = 1000;
+    vi.stubGlobal("performance", { now: () => now });
+    vi.stubGlobal("document", { hidden: false });
+    playground.isAnimated = true;
+    playground.play();
+    now = 2000;
+    frame(now);
+    expect(playground.time).toBe(1);
+    now = 3000;
+    frame(now);
+    expect(playground.time).toBe(2);
+    expect(playground.errored).toBe(false);
+    playground.pause();
+  });
+
+  it("does not capture an empty walk or report it as a drawn frame", async () => {
+    wasm.render.mockReturnValue({
+      diags: [],
+      presented: false,
+      error: undefined,
+    });
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+    expect(playground.renderForCapture()).toBe(false);
+    expect(playground.status).toBe("nothing drawn");
+    expect(playground.errored).toBe(false);
+  });
+
+  it("blocks captures with error diagnostics", async () => {
+    wasm.render.mockReturnValue({
+      diags: [
+        { line: 32, kind: "addr", severity: "error", msg: "unknown opcode" },
+      ],
+      presented: false,
+      error: undefined,
+    });
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+    expect(playground.renderForCapture()).toBe(false);
+    expect(playground.status).toBe("1 diagnostic(s)");
+    expect(playground.errored).toBe(true);
+  });
+
+  it("preserves different severities and updates severity-only changes", async () => {
+    const diag = { line: 1, kind: "src", severity: "warn", msg: "diagnostic" };
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+    wasm.render.mockReturnValue({
+      diags: [diag],
+      presented: true,
+      error: undefined,
+    });
+    playground.run();
+    wasm.render.mockReturnValue({
+      diags: [{ ...diag, severity: "error" }],
+      presented: false,
+      error: undefined,
+    });
+    playground.run();
+    expect(playground.diags[0].severity).toBe("error");
+    playground.declarationDiags = [{ ...diag, kind: "src", severity: "warn" }];
+    expect(playground.renderForCapture()).toBe(false);
+    expect(playground.diags.map((d) => d.severity)).toEqual(["warn", "error"]);
   });
 });

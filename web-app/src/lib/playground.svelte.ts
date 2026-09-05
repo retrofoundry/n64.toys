@@ -18,6 +18,7 @@ export type Diagnostic = {
   line: number;
   kind: "src" | "addr" | "none";
   msg: string;
+  severity: "warn" | "error";
 };
 export type Settings = {
   microcode: string;
@@ -29,6 +30,7 @@ function sameDiags(a: Diagnostic[], b: Diagnostic[]): boolean {
     if (
       a[i].line !== b[i].line ||
       a[i].kind !== b[i].kind ||
+      a[i].severity !== b[i].severity ||
       a[i].msg !== b[i].msg
     )
       return false;
@@ -48,6 +50,7 @@ type TextureLoadOptions = { run?: boolean; signal?: AbortSignal };
 type TransitionOptions = { signal?: AbortSignal };
 type PreparedAsset = { name: string; asset: TextureAsset };
 type RenderResult = {
+  presented: boolean;
   diags: Diagnostic[];
   error: string | null;
 };
@@ -80,6 +83,7 @@ function dedupeDiags(diags: Diagnostic[]): Diagnostic[] {
         (candidate) =>
           candidate.line === diag.line &&
           candidate.kind === diag.kind &&
+          candidate.severity === diag.severity &&
           candidate.msg === diag.msg,
       )
     ) {
@@ -249,6 +253,7 @@ export class Playground {
 
   async #initRenderer(canvas: HTMLCanvasElement): Promise<void> {
     if (this.#rendererCanvas !== canvas) {
+      this.#renderer?.shutdown();
       this.#rendererInit = undefined;
       this.#renderer = undefined;
     }
@@ -256,14 +261,19 @@ export class Playground {
       this.#rendererCanvas = canvas;
       this.rendererState = "pending";
       this.rendererError = undefined;
-      this.#rendererInit = Renderer.init(canvas).then(
+      const rendererInit = Renderer.init(canvas).then(
         (renderer) => {
+          if (this.#rendererInit !== rendererInit) {
+            renderer.shutdown();
+            return;
+          }
           this.#renderer = renderer;
           this.rendererState = "ready";
           this.rendererError = undefined;
           if (this.source) this.run();
         },
         (error) => {
+          if (this.#rendererInit !== rendererInit) return;
           this.#rendererInit = undefined;
           this.#renderer = undefined;
           this.rendererState = "failed";
@@ -271,6 +281,7 @@ export class Playground {
             error instanceof Error ? error.message : String(error);
         },
       );
+      this.#rendererInit = rendererInit;
     }
     await this.#rendererInit;
   }
@@ -298,7 +309,12 @@ export class Playground {
     return [
       ...this.declarationDiags,
       ...(this.textureLimitError
-        ? [{ line: 0, kind: "none" as const, msg: this.textureLimitError }]
+        ? [{
+            line: 0,
+            kind: "none" as const,
+            severity: "error" as const,
+            msg: this.textureLimitError,
+          }]
         : []),
     ];
   }
@@ -336,13 +352,18 @@ export class Playground {
 
   #applyRenderResult(result: RenderResult | null): Diagnostic[] {
     const diags = this.#setMergedDiags(result?.diags ?? []);
-    const errored = result?.error != null || diags.length > 0;
+    const errored =
+      result?.error != null || diags.some((diag) => diag.severity === "error");
     // Push only on change to avoid 60fps reactivity + CodeMirror lint thrash.
-    const status = result?.error
+    const status = result?.error != null
       ? `error: ${result.error}`
-      : diags.length === 0
-        ? "drew scene"
-        : `${diags.length} diagnostic(s)`;
+      : errored
+        ? `${diags.length} diagnostic(s)`
+        : !result?.presented
+          ? "nothing drawn"
+          : diags.length === 0
+            ? "drew scene"
+            : `drew scene, ${diags.length} warning(s)`;
     if (this.status !== status) this.status = status;
     if (this.errored !== errored) this.errored = errored;
     return diags;
@@ -521,10 +542,10 @@ export class Playground {
     const diags = this.#applyRenderResult(result);
     // serde-wasm-bindgen serializes Rust `None` to `undefined`, so use loose `!= null`.
     return (
-      result !== null &&
+      result != null &&
+      result.presented &&
       result.error == null &&
-      result.diags.length === 0 &&
-      diags.length === 0
+      !diags.some((diag) => diag.severity === "error")
     );
   }
 
@@ -604,6 +625,7 @@ export class Playground {
     this.pause();
     this.#revokeAssets(this.textureSlots);
     this.#setTextureSlots([]);
+    this.#renderer?.shutdown();
     this.#renderer = undefined;
     this.#rendererInit = undefined;
     this.#rendererCanvas = undefined;

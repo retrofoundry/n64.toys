@@ -1,5 +1,9 @@
 import { StateEffect, StateField, type Extension } from "@codemirror/state";
-import { linter, lintGutter, type Diagnostic as CMDiagnostic } from "@codemirror/lint";
+import {
+  linter,
+  lintGutter,
+  type Diagnostic as CMDiagnostic,
+} from "@codemirror/lint";
 import type { Diagnostic } from "../playground.svelte";
 
 // Named `setDiagsEffect` (not `setDiagnostics`) to avoid shadowing @codemirror/lint's
@@ -24,7 +28,8 @@ const n64Linter = linter((view): CMDiagnostic[] => {
       return {
         from: line.from,
         to: line.to,
-        severity: "error" as const,
+        severity:
+          d.severity === "warn" ? ("warning" as const) : ("error" as const),
         message: d.msg,
       };
     });
