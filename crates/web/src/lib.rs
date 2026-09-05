@@ -62,20 +62,24 @@ struct RenderOut {
     error: Option<String>,
 }
 
-/// Map HLE diagnostics to the JS list. `line` is the command byte address (`Diagnostic::at`), not a
-/// source line.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-fn map_diags(diags: &[Diagnostic]) -> Vec<DiagOut> {
+fn map_diags(diags: &[Diagnostic], source_map: &[(u32, usize)]) -> Vec<DiagOut> {
     diags
         .iter()
-        .map(|d| DiagOut {
-            line: d.at as usize,
-            kind: "addr",
-            msg: d.kind.to_string(),
-            severity: match d.kind.severity() {
-                fast3d::Severity::Warn => "warn",
-                fast3d::Severity::Error => "error",
-            },
+        .map(|d| {
+            let (kind, line) = source_map
+                .binary_search_by_key(&d.at, |&(addr, _)| u64::from(addr))
+                .map(|index| ("src", source_map[index].1))
+                .unwrap_or(("addr", d.at as usize));
+            DiagOut {
+                line,
+                kind,
+                msg: d.kind.to_string(),
+                severity: match d.kind.severity() {
+                    fast3d::Severity::Warn => "warn",
+                    fast3d::Severity::Error => "error",
+                },
+            }
         })
         .collect()
 }
@@ -163,6 +167,7 @@ impl Hardware for WebHardware {
 pub struct Renderer {
     inner: Fast3dRenderer,
     hw: WebHardware,
+    source_map: Vec<(u32, usize)>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -189,6 +194,7 @@ impl Renderer {
         Ok(Renderer {
             inner,
             hw: WebHardware { rdram: Vec::new() },
+            source_map: Vec::new(),
         })
     }
 
@@ -228,6 +234,7 @@ impl Renderer {
             }
         };
         self.hw.rdram = image.rdram;
+        self.source_map = image.source_map;
 
         let mut diags: Vec<Diagnostic> = Vec::new();
         self.inner.begin_frame();
@@ -237,7 +244,7 @@ impl Renderer {
             Microcode::F3dex2,
             &mut diags,
         );
-        let diag_out = map_diags(&diags);
+        let diag_out = map_diags(&diags, &self.source_map);
 
         if !should_present(&summary) {
             return to_js(&RenderOut {
@@ -321,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn map_diags_carries_byte_address_as_line_and_kind_display_as_msg() {
+    fn map_diags_resolves_source_lines_and_falls_back_to_addresses() {
         let diags = vec![
             Diagnostic {
                 at: 0x20,
@@ -332,30 +339,67 @@ mod tests {
                 kind: DiagKind::UnknownOpcode(0xAB),
             },
         ];
-        let out = map_diags(&diags);
+        let out = map_diags(&diags, &[(0x20, 7)]);
         assert_eq!(out.len(), 2);
         assert_eq!(
-            (out[0].line, out[0].msg.as_str()),
-            (0x20, "draw before first CIMG")
+            (out[0].kind, out[0].line, out[0].msg.as_str()),
+            ("src", 7, "draw before first CIMG")
         );
         assert_eq!(
-            (out[1].line, out[1].msg.as_str()),
-            (0x1234, "unknown opcode 0xAB")
+            (out[1].kind, out[1].line, out[1].msg.as_str()),
+            ("addr", 0x1234, "unknown opcode 0xAB")
         );
     }
 
     #[test]
-    fn map_diags_preserves_severity() {
-        let out = map_diags(&[
-            Diagnostic {
-                at: 0,
+    fn map_diags_points_missing_render_mode_at_starter_triangle() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../web-app/src/lib/docs/starter.n64"
+        ))
+        .lines()
+        .filter(|line| !line.starts_with("gsDPSetRenderMode("))
+        .collect::<Vec<_>>()
+        .join("\n");
+        let triangle_line = source
+            .lines()
+            .position(|line| line.starts_with("gsSP1Triangle("))
+            .unwrap()
+            + 1;
+        let image = fast3d::asm::assemble_at_with_textures(&source, 0.0, &[]).unwrap();
+        let at = image
+            .source_map
+            .iter()
+            .find(|&&(_, line)| line == triangle_line)
+            .unwrap()
+            .0;
+        let out = map_diags(
+            &[Diagnostic {
+                at: u64::from(at),
                 kind: DiagKind::RenderModeNeverSet,
-            },
-            Diagnostic {
-                at: 8,
-                kind: DiagKind::UnknownOpcode(0xAB),
-            },
-        ]);
+            }],
+            &image.source_map,
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!((out[0].kind, out[0].line), ("src", triangle_line));
+        assert_eq!(out[0].severity, "warn");
+    }
+
+    #[test]
+    fn map_diags_preserves_severity() {
+        let out = map_diags(
+            &[
+                Diagnostic {
+                    at: 0,
+                    kind: DiagKind::RenderModeNeverSet,
+                },
+                Diagnostic {
+                    at: 8,
+                    kind: DiagKind::UnknownOpcode(0xAB),
+                },
+            ],
+            &[(0, 1)],
+        );
         assert_eq!(out[0].severity, "warn");
         assert_eq!(out[1].severity, "error");
     }
@@ -370,12 +414,11 @@ mod tests {
             .all(|d| d.kind == "src" || d.kind == "none"));
         assert!(out.diags.iter().any(|d| d.kind == "src" && d.line == 1));
 
-        // HLE diag: byte address -> "addr".
         let hle = vec![Diagnostic {
             at: 0x1234,
             kind: DiagKind::UnknownOpcode(0xAB),
         }];
-        let mapped = map_diags(&hle);
+        let mapped = map_diags(&hle, &[]);
         assert_eq!(mapped[0].kind, "addr");
         assert_eq!(mapped[0].line, 0x1234);
     }
