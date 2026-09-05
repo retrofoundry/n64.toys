@@ -6,7 +6,7 @@ export type TextureDeclaration = {
 };
 
 const TEXTURE_DECLARATION =
-  /^\s*Texture\s+([A-Za-z_]\w*)\s*=\s*\{\s*(\d+)\s*,\s*(\d+)\s*,\s*([A-Za-z0-9]+)\s*\}/;
+  /^\s*Texture\s+([A-Za-z_]\w*)\s*=\s*\{\s*(0[xX][\da-fA-F]+|\d+)\s*,\s*(0[xX][\da-fA-F]+|\d+)\s*,\s*([A-Za-z0-9]+)\s*\}/;
 
 export function parseTextureDeclarations(
   source: string,
