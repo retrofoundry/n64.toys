@@ -39,6 +39,10 @@ export class Renderer {
         const ret = wasm.renderer_render(this.__wbg_ptr, ptr0, len0, time, textures);
         return ret;
     }
+    shutdown() {
+        const ptr = this.__destroy_into_raw();
+        wasm.renderer_shutdown(ptr);
+    }
 }
 if (Symbol.dispose) Renderer.prototype[Symbol.dispose] = Renderer.prototype.free;
 

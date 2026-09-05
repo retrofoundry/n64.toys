@@ -23,6 +23,7 @@ struct DiagOut {
     /// "src" = 1-based source line; "addr" = RDRAM byte address; "none" = no location.
     kind: &'static str,
     msg: String,
+    severity: &'static str,
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
@@ -55,6 +56,7 @@ struct TextureInputIn {
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 #[derive(Serialize)]
 struct RenderOut {
+    presented: bool,
     diags: Vec<DiagOut>,
     /// Non-fatal runtime error (e.g. surface loss), distinct from the HLE diags.
     error: Option<String>,
@@ -70,6 +72,10 @@ fn map_diags(diags: &[Diagnostic]) -> Vec<DiagOut> {
             line: d.at as usize,
             kind: "addr",
             msg: d.kind.to_string(),
+            severity: match d.kind.severity() {
+                fast3d::Severity::Warn => "warn",
+                fast3d::Severity::Error => "error",
+            },
         })
         .collect()
 }
@@ -97,6 +103,7 @@ fn map_analysis(source: &str) -> AnalysisOut {
                 line: diag.line,
                 kind: if diag.line == 0 { "none" } else { "src" },
                 msg: diag.msg,
+                severity: "error",
             })
             .collect(),
     }
@@ -185,12 +192,17 @@ impl Renderer {
         })
     }
 
+    pub fn shutdown(self) {
+        self.inner.shutdown();
+    }
+
     /// Assemble the source with texture inputs, interpret it, and draw to the canvas.
     pub fn render(&mut self, source: &str, time: f32, textures: JsValue) -> JsValue {
         let inputs: Vec<TextureInputIn> = match serde_wasm_bindgen::from_value(textures) {
             Ok(inputs) => inputs,
             Err(error) => {
                 return to_js(&RenderOut {
+                    presented: false,
                     diags: Vec::new(),
                     error: Some(format!("invalid texture inputs: {error}")),
                 });
@@ -201,12 +213,14 @@ impl Renderer {
             Ok(image) => image,
             Err(diags) => {
                 return to_js(&RenderOut {
+                    presented: false,
                     diags: diags
                         .into_iter()
                         .map(|d| DiagOut {
                             line: d.line,
                             kind: if d.line == 0 { "none" } else { "src" },
                             msg: d.msg,
+                            severity: "error",
                         })
                         .collect(),
                     error: None,
@@ -227,6 +241,7 @@ impl Renderer {
 
         if !should_present(&summary) {
             return to_js(&RenderOut {
+                presented: false,
                 diags: diag_out,
                 error: None,
             });
@@ -237,6 +252,7 @@ impl Renderer {
             Err(e) => Some(format!("present: {e:?}")),
         };
         to_js(&RenderOut {
+            presented: error.is_none(),
             diags: diag_out,
             error,
         })
@@ -329,6 +345,22 @@ mod tests {
     }
 
     #[test]
+    fn map_diags_preserves_severity() {
+        let out = map_diags(&[
+            Diagnostic {
+                at: 0,
+                kind: DiagKind::RenderModeNeverSet,
+            },
+            Diagnostic {
+                at: 8,
+                kind: DiagKind::UnknownOpcode(0xAB),
+            },
+        ]);
+        assert_eq!(out[0].severity, "warn");
+        assert_eq!(out[1].severity, "error");
+    }
+
+    #[test]
     fn diag_kinds_discriminate_source_lines_from_addresses() {
         // Assembler diag: real source line -> "src"; line 0 (no location) -> "none".
         let out = map_analysis("this line does not parse\n");
@@ -356,6 +388,7 @@ mod tests {
         assert_eq!(out.textures[0].name, "grass");
         assert_eq!(out.textures[1].format, "IA8");
         assert!(!out.diags.is_empty());
+        assert!(out.diags.iter().all(|diag| diag.severity == "error"));
     }
 
     #[test]

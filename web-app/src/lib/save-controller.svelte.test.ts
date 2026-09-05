@@ -51,6 +51,7 @@ function playground() {
     textureSlots: [] as ReturnType<typeof slot>[],
     settings: { microcode: "F3DEX2" },
     hasRenderer: true,
+    diags: [] as import("./playground.svelte").Diagnostic[],
     renderForCapture: vi.fn(() => true),
     newDraft: vi.fn(async () => {
       // Mirrors the real newDraft, which seeds the commented starter template.
@@ -272,7 +273,17 @@ describe("SaveController", () => {
     value.pg.renderForCapture.mockReturnValue(false);
     value.controller.setVisibility("public");
     await value.controller.save();
-    expect(value.controller.errorMessage).toMatch(/render/i);
+    expect(value.controller.errorMessage).toBe("Nothing was drawn. Fix render diagnostics before publishing.");
+    expect(value.transport.create).not.toHaveBeenCalled();
+  });
+
+  it("keeps the diagnostic message when a failed capture has diagnostics", async () => {
+    const value = controller();
+    value.pg.diags = [{ line: 1, kind: "src", severity: "error", msg: "invalid" }];
+    value.pg.renderForCapture.mockReturnValue(false);
+    value.controller.setVisibility("public");
+    await value.controller.save();
+    expect(value.controller.errorMessage).toBe("Fix render diagnostics before publishing.");
     expect(value.transport.create).not.toHaveBeenCalled();
   });
 

@@ -16,8 +16,8 @@
     {#if diagnostics.length === 0}
       <div class="text-n64-green text-xs">no diagnostics</div>
     {:else}
-      {#each diagnostics as d (`${d.kind}:${d.line}:${d.msg}`)}
-        <div class="flex gap-2.5 border border-edge border-l-[3px] border-l-n64-red bg-raised px-2.5 py-1.5 text-xs">
+      {#each diagnostics as d (`${d.kind}:${d.line}:${d.severity}:${d.msg}`)}
+        <div class="flex gap-2.5 border border-edge border-l-[3px] {d.severity === "warn" ? "border-l-n64-yellow" : "border-l-n64-red"} bg-raised px-2.5 py-1.5 text-xs">
           {#if d.kind === "src"}
             <span class="text-n64-yellow shrink-0">line {d.line}</span>
           {:else if d.kind === "addr"}
