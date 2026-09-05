@@ -170,7 +170,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "fast3d"
 version = "1.0.0"
-source = "git+https://github.com/retrofoundry/fast3d-rs?rev=3b58119d86e07773ecf7682cc6c1ef6e04dd9aa7#3b58119d86e07773ecf7682cc6c1ef6e04dd9aa7"
+source = "git+https://github.com/retrofoundry/fast3d-rs?rev=4e19568a127324be446b4a123667da547b65aa4b#4e19568a127324be446b4a123667da547b65aa4b"
 dependencies = [
  "bytemuck",
  "log",
@@ -436,7 +436,7 @@ checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 [[package]]
 name = "n64-gbi"
 version = "1.0.0"
-source = "git+https://github.com/retrofoundry/fast3d-rs?rev=3b58119d86e07773ecf7682cc6c1ef6e04dd9aa7#3b58119d86e07773ecf7682cc6c1ef6e04dd9aa7"
+source = "git+https://github.com/retrofoundry/fast3d-rs?rev=4e19568a127324be446b4a123667da547b65aa4b#4e19568a127324be446b4a123667da547b65aa4b"
 
 [[package]]
 name = "naga"
