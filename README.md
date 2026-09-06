@@ -10,6 +10,10 @@ you'd write on real hardware — exercising a slice of the N64 graphics pipeline
 combiners, lighting, matrices, 2D framebuffer effects, and more. Edit it and the result updates live.
 When you like it, publish it so others can open it, watch it render, and read how it works.
 
+The Microcode setting selects F3DEX2 (the default) or F3D for assembly and rendering, and is saved
+with the toy. F3D has a 16-vertex cache. Named geometry flags retain their meaning across targets;
+numeric geometry masks keep their literal bits, so check them when switching microcode.
+
 ## Built on fast3d
 
 Rendering is powered by **[fast3d](https://github.com/retrofoundry/fast3d-rs)** — a standalone,

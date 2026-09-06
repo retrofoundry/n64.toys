@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(target_arch = "wasm32")]
 use fast3d::{
-    ClearPolicy, Hardware, Microcode, Rdram, RdramImage, Renderer as Fast3dRenderer, RendererConfig,
+    ClearPolicy, Hardware, Rdram, RdramImage, Renderer as Fast3dRenderer, RendererConfig,
 };
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -85,8 +85,9 @@ fn map_diags(diags: &[Diagnostic], source_map: &[(u32, usize)]) -> Vec<DiagOut> 
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-fn map_analysis(source: &str) -> AnalysisOut {
-    let out = n64_toys_asm::analyze(source, n64_toys_asm::Microcode::F3dex2);
+#[cfg(any(target_arch = "wasm32", test))]
+fn analysis_out(source: &str, microcode: n64_toys_asm::Microcode) -> AnalysisOut {
+    let out = n64_toys_asm::analyze(source, microcode);
     AnalysisOut {
         textures: out
             .textures
@@ -111,6 +112,64 @@ fn map_analysis(source: &str) -> AnalysisOut {
             })
             .collect(),
     }
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+#[derive(Clone, Copy)]
+struct MicrocodeTargets {
+    assembler: n64_toys_asm::Microcode,
+    renderer: fast3d::Microcode,
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn parse_microcode(microcode: &str) -> Option<MicrocodeTargets> {
+    match microcode {
+        "F3DEX2" => Some(MicrocodeTargets {
+            assembler: n64_toys_asm::Microcode::F3dex2,
+            renderer: fast3d::Microcode::F3dex2,
+        }),
+        "F3D" => Some(MicrocodeTargets {
+            assembler: n64_toys_asm::Microcode::F3d,
+            renderer: fast3d::Microcode::F3d,
+        }),
+        _ => None,
+    }
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn map_analysis(source: &str, microcode: &str) -> AnalysisOut {
+    let Some(targets) = parse_microcode(microcode) else {
+        let mut out = analysis_out(source, n64_toys_asm::Microcode::default());
+        out.diags.push(DiagOut {
+            line: 0,
+            kind: "none",
+            msg: format!("unknown microcode: {microcode}"),
+            severity: "error",
+        });
+        return out;
+    };
+    analysis_out(source, targets.assembler)
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+#[derive(Debug)]
+struct PreparedRender {
+    image: n64_toys_asm::Image,
+    microcode: fast3d::Microcode,
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn prepare_render(
+    source: &str,
+    time: f32,
+    textures: &[n64_toys_asm::TextureInput<'_>],
+    targets: MicrocodeTargets,
+) -> Result<PreparedRender, Vec<n64_toys_asm::Diag>> {
+    let image = n64_toys_asm::assemble_at_with_textures(source, time, textures, targets.assembler)?;
+    Ok(PreparedRender {
+        image,
+        microcode: targets.renderer,
+    })
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
@@ -146,8 +205,8 @@ pub fn start() {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = analyze)]
-pub fn analyze_js(source: &str) -> JsValue {
-    to_js(&map_analysis(source))
+pub fn analyze_js(source: &str, microcode: &str) -> JsValue {
+    to_js(&map_analysis(source, microcode))
 }
 
 /// The N64-machine boundary for web: an owned RDRAM image (the assembled DL).
@@ -203,7 +262,20 @@ impl Renderer {
     }
 
     /// Assemble the source with texture inputs, interpret it, and draw to the canvas.
-    pub fn render(&mut self, source: &str, time: f32, textures: JsValue) -> JsValue {
+    pub fn render(
+        &mut self,
+        source: &str,
+        time: f32,
+        textures: JsValue,
+        microcode: &str,
+    ) -> JsValue {
+        let Some(targets) = parse_microcode(microcode) else {
+            return to_js(&RenderOut {
+                presented: false,
+                diags: Vec::new(),
+                error: Some(format!("unknown microcode: {microcode}")),
+            });
+        };
         let inputs: Vec<TextureInputIn> = match serde_wasm_bindgen::from_value(textures) {
             Ok(inputs) => inputs,
             Err(error) => {
@@ -215,13 +287,8 @@ impl Renderer {
             }
         };
         let borrowed = borrow_texture_inputs(&inputs);
-        let image = match n64_toys_asm::assemble_at_with_textures(
-            source,
-            time,
-            &borrowed,
-            n64_toys_asm::Microcode::F3dex2,
-        ) {
-            Ok(image) => image,
+        let prepared = match prepare_render(source, time, &borrowed, targets) {
+            Ok(prepared) => prepared,
             Err(diags) => {
                 return to_js(&RenderOut {
                     presented: false,
@@ -238,6 +305,7 @@ impl Renderer {
                 });
             }
         };
+        let image = prepared.image;
         self.hw.rdram = image.rdram;
         self.source_map = image.source_map;
 
@@ -246,7 +314,7 @@ impl Renderer {
         let summary = self.inner.process_dl(
             &self.hw,
             image.entry_addr as u64,
-            Microcode::F3dex2,
+            prepared.microcode,
             &mut diags,
         );
         let diag_out = map_diags(&diags, &self.source_map);
@@ -285,32 +353,6 @@ mod tests {
             dropped_runs: 0,
             renderable,
         }
-    }
-
-    /// The starter seeds every new toy, so a regression here is the first thing a new user sees.
-    #[test]
-    fn starter_assembles_clean_at_rest_and_in_motion() {
-        let src = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../web-app/src/lib/docs/starter.n64"
-        ));
-        for t in [0.0f32, 1.37f32] {
-            let image = n64_toys_asm::assemble_at_with_textures(
-                src,
-                t,
-                &[],
-                n64_toys_asm::Microcode::F3dex2,
-            )
-            .unwrap_or_else(|d| panic!("starter must assemble at t={t}: {d:?}"));
-            assert!(image.entry_addr > 0);
-        }
-        let analysis = n64_toys_asm::analyze(src, n64_toys_asm::Microcode::F3dex2);
-        assert!(
-            analysis.diagnostics.is_empty(),
-            "{:?}",
-            analysis.diagnostics
-        );
-        assert!(analysis.references_time, "starter must animate");
     }
 
     #[test]
@@ -423,7 +465,7 @@ mod tests {
     #[test]
     fn diag_kinds_discriminate_source_lines_from_addresses() {
         // Assembler diag: real source line -> "src"; line 0 (no location) -> "none".
-        let out = map_analysis("this line does not parse\n");
+        let out = map_analysis("this line does not parse\n", "F3DEX2");
         assert!(out
             .diags
             .iter()
@@ -443,6 +485,7 @@ mod tests {
     fn analysis_output_preserves_names_formats_and_diagnostics() {
         let out = map_analysis(
             "Texture grass = { 32, 16, RGBA16 }\ninvalid\nTexture mask = { 8, 8, IA8 }",
+            "F3DEX2",
         );
         assert_eq!(out.textures[0].name, "grass");
         assert_eq!(out.textures[1].format, "IA8");
@@ -452,9 +495,84 @@ mod tests {
 
     #[test]
     fn analysis_reports_time_reference() {
-        let out =
-            map_analysis("Mtx m = identity()\nupdate {\n  guRotate(m, time * 90, 0, 0, 1)\n}\n");
+        let out = map_analysis(
+            "Mtx m = identity()\nupdate {\n  guRotate(m, time * 90, 0, 0, 1)\n}\n",
+            "F3DEX2",
+        );
         assert!(out.references_time);
+    }
+
+    #[test]
+    fn preparation_selects_matching_assembler_and_renderer_targets() {
+        let source = "gsSP1Triangle(0, 1, 2, 0)\ngsSPEndDisplayList()\n";
+        for (name, opcode, renderer_microcode) in [
+            ("F3DEX2", 0x05, fast3d::Microcode::F3dex2),
+            ("F3D", 0xBF, fast3d::Microcode::F3d),
+        ] {
+            let prepared =
+                prepare_render(source, 0.0, &[], parse_microcode(name).unwrap()).unwrap();
+            assert_eq!(
+                prepared.image.rdram[prepared.image.entry_addr as usize],
+                opcode
+            );
+            assert_eq!(prepared.microcode, renderer_microcode);
+        }
+    }
+
+    #[test]
+    fn preparation_rejects_unknown_microcode_before_assembly() {
+        for name in ["f3d", "", "F3DEX"] {
+            assert!(parse_microcode(name).is_none());
+        }
+    }
+
+    #[test]
+    fn preparation_returns_assembly_diagnostics_for_known_microcode() {
+        let diags = prepare_render(
+            "this line does not parse\n",
+            0.0,
+            &[],
+            parse_microcode("F3DEX2").unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(diags[0].line, 1);
+    }
+
+    #[test]
+    fn unknown_microcode_analysis_preserves_metadata_and_reports_no_location() {
+        let out = map_analysis(
+            "Texture grass = { 32, 16, RGBA16 }\nMtx m = identity()\nupdate {\n  guRotate(m, time * 90, 0, 0, 1)\n}\n",
+            "f3d",
+        );
+        assert_eq!(out.textures.len(), 1);
+        assert_eq!(out.textures[0].name, "grass");
+        assert!(out.references_time);
+        assert!(out
+            .diags
+            .iter()
+            .any(|diag| diag.kind == "none" && diag.line == 0));
+    }
+
+    #[test]
+    fn analysis_applies_target_specific_f3d_validation() {
+        let source = "gsSP1Triangle(0, 1, 16, 0)\ngsSPEndDisplayList()\n";
+        assert!(map_analysis(source, "F3DEX2").diags.is_empty());
+        assert!(!map_analysis(source, "F3D").diags.is_empty());
+    }
+
+    #[test]
+    fn starter_prepares_at_rest_and_in_motion_for_both_targets() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../web-app/src/lib/docs/starter.n64"
+        ));
+        for name in ["F3DEX2", "F3D"] {
+            for time in [0.0, 1.37] {
+                let prepared = prepare_render(source, time, &[], parse_microcode(name).unwrap())
+                    .unwrap_or_else(|error| panic!("{name} starter at {time}: {error:?}"));
+                assert!(prepared.image.entry_addr > 0);
+            }
+        }
     }
 
     #[test]

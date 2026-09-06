@@ -65,7 +65,7 @@ describe("parseTextureDeclarations", () => {
 
   // Computed specifier: the glue lives in web-app, which the server Docker build never copies.
   const wasmDir = new URL("../../../web-app/src/wasm/", import.meta.url);
-  let analyze: (source: string) => { textures: unknown[] };
+  let analyze: (source: string, microcode: string) => { textures: unknown[] };
 
   beforeAll(async () => {
     const glue = await import(fileURLToPath(new URL("n64_toys.js", wasmDir)));
@@ -94,7 +94,7 @@ describe("parseTextureDeclarations", () => {
       "Texture grass = { 8, 8, I8 }\nTexture grass = { 16, 16, RGBA16 }",
     ],
   ])("matches wasm analysis for %s", (_name, source) => {
-    const textures = analyze(source).textures as {
+    const textures = analyze(source, "F3DEX2").textures as {
       name: string;
       width: number;
       height: number;

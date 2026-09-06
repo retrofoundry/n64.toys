@@ -54,5 +54,5 @@
     />
   </div>
   <div class="editor-diagnostics"><Diagnostics diagnostics={pg.diags} /></div>
-  <div class="editor-settings"><Settings bind:settings={pg.settings} /></div>
+  <div class="editor-settings"><Settings {pg} /></div>
 </main>

@@ -60,8 +60,8 @@ export function parseManifest(raw: unknown): Result<SaveManifest> {
     return validationError("Schema version must be 1.");
   }
 
-  if (typeof value.microcode !== "string") {
-    return validationError("Microcode must be a string.");
+  if (value.microcode !== "F3DEX2" && value.microcode !== "F3D") {
+    return validationError("Microcode must be F3DEX2 or F3D.");
   }
 
   if (!Array.isArray(value.textures)) {

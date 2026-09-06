@@ -59,6 +59,7 @@ function playground() {
       pg.title = "";
       pg.description = "";
       pg.textureSlots = [];
+      pg.settings.microcode = "F3DEX2";
     }),
     reconcileTextureDeclarations: vi.fn(() => {
       if (pg.source.includes("Texture albedo")) {
@@ -176,6 +177,23 @@ describe("SaveController", () => {
 
     value.pg.textureSlots = [slot("new-texture")];
     expect(value.controller.status).toBe("dirty");
+  });
+
+  it("tracks and preserves F3D when forking another user's toy", async () => {
+    const value = controller();
+    const loaded = toy(false);
+    loaded.microcode = "F3D";
+    value.controller.adoptLoadedToy(loaded);
+    value.pg.settings.microcode = "F3D";
+
+    expect(value.controller.status).toBe("dirty");
+    await value.controller.save();
+
+    const body = vi.mocked(value.transport.create).mock.calls[0][0];
+    expect(await manifest(body)).toMatchObject({
+      forkOfSlug: "theirs",
+      microcode: "F3D",
+    });
   });
 
   it("treats a freshly seeded starter draft as clean until it is edited", async () => {
@@ -395,6 +413,32 @@ describe("SaveController", () => {
     );
     expect(restored.transport.create).toHaveBeenCalledOnce();
     expect(sessionStorage.getItem(PENDING_DRAFT_KEY)).toBeNull();
+  });
+
+  it("restores a pending microcode before source analysis", async () => {
+    const pg = playground();
+    pg.settings.microcode = "F3D";
+    const anonymous = controller(pg, { getAuthState: () => signedOut });
+    await anonymous.controller.save();
+
+    const restoredPg = playground();
+    const assignments: string[] = [];
+    let source = restoredPg.source;
+    Object.defineProperty(restoredPg, "source", {
+      get: () => source,
+      set: (value: string) => {
+        source = value;
+        assignments.push(restoredPg.settings.microcode);
+      },
+    });
+    const restored = controller(restoredPg);
+
+    expect(await restored.controller.restorePendingDraft()).toBe(true);
+    expect(assignments.at(-1)).toBe("F3D");
+    expect(restoredPg.settings.microcode).toBe("F3D");
+    expect(restoredPg.run).toHaveBeenCalledOnce();
+    const body = vi.mocked(restored.transport.create).mock.calls[0][0];
+    expect(await manifest(body)).toMatchObject({ microcode: "F3D" });
   });
 
   it("silently drops expired and corrupt pending drafts", async () => {
