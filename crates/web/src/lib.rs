@@ -86,7 +86,7 @@ fn map_diags(diags: &[Diagnostic], source_map: &[(u32, usize)]) -> Vec<DiagOut> 
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 fn map_analysis(source: &str) -> AnalysisOut {
-    let out = n64_toys_asm::analyze(source);
+    let out = n64_toys_asm::analyze(source, n64_toys_asm::Microcode::F3dex2);
     AnalysisOut {
         textures: out
             .textures
@@ -215,7 +215,12 @@ impl Renderer {
             }
         };
         let borrowed = borrow_texture_inputs(&inputs);
-        let image = match n64_toys_asm::assemble_at_with_textures(source, time, &borrowed) {
+        let image = match n64_toys_asm::assemble_at_with_textures(
+            source,
+            time,
+            &borrowed,
+            n64_toys_asm::Microcode::F3dex2,
+        ) {
             Ok(image) => image,
             Err(diags) => {
                 return to_js(&RenderOut {
@@ -290,11 +295,16 @@ mod tests {
             "/../../web-app/src/lib/docs/starter.n64"
         ));
         for t in [0.0f32, 1.37f32] {
-            let image = n64_toys_asm::assemble_at_with_textures(src, t, &[])
-                .unwrap_or_else(|d| panic!("starter must assemble at t={t}: {d:?}"));
+            let image = n64_toys_asm::assemble_at_with_textures(
+                src,
+                t,
+                &[],
+                n64_toys_asm::Microcode::F3dex2,
+            )
+            .unwrap_or_else(|d| panic!("starter must assemble at t={t}: {d:?}"));
             assert!(image.entry_addr > 0);
         }
-        let analysis = n64_toys_asm::analyze(src);
+        let analysis = n64_toys_asm::analyze(src, n64_toys_asm::Microcode::F3dex2);
         assert!(
             analysis.diagnostics.is_empty(),
             "{:?}",
@@ -366,7 +376,13 @@ mod tests {
             .position(|line| line.starts_with("gsSP1Triangle("))
             .unwrap()
             + 1;
-        let image = n64_toys_asm::assemble_at_with_textures(&source, 0.0, &[]).unwrap();
+        let image = n64_toys_asm::assemble_at_with_textures(
+            &source,
+            0.0,
+            &[],
+            n64_toys_asm::Microcode::F3dex2,
+        )
+        .unwrap();
         let at = image
             .source_map
             .iter()

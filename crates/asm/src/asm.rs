@@ -1,5 +1,6 @@
 use crate::expr::EvalCtx;
-use crate::parser::{extract_update, parse, AddrOperand, Diag, GuStmt, MtxInit, Stmt, VtxDef};
+use crate::parser::{extract_update, parse_for, AddrOperand, Diag, GuStmt, MtxInit, Stmt, VtxDef};
+use crate::Microcode;
 use n64_gbi::encode::*;
 use n64_gbi::gu::{gu_look_at, gu_mtx_ident, gu_perspective, gu_rotate, gu_scale, gu_translate};
 use std::collections::{HashMap, HashSet};
@@ -338,7 +339,7 @@ fn translate_mtx(t: [f32; 3]) -> [[f32; 4]; 4] {
 
 /// Words emitted by one command statement (data decls + block markers emit none). Used to
 /// pre-size blocks so block addresses are known before any block is emitted (forward references).
-fn stmt_word_count(s: &Stmt) -> usize {
+fn stmt_word_count(s: &Stmt, microcode: Microcode) -> usize {
     match s {
         // CI8 (fmt=2,siz=1) and CI4 (fmt=2,siz=0): 4 TLUT-load commands + 7 standard texture-block
         // commands = 11. All other formats: gdp_load_texture_block returns 7 words.
@@ -373,11 +374,14 @@ fn stmt_word_count(s: &Stmt) -> usize {
         | Stmt::DpSetTextureImage { .. }
         | Stmt::DpSetTile { .. }
         | Stmt::DpSetTileSize { .. } => 1,
+        Stmt::Sp2Triangles { .. } if microcode == Microcode::F3d => 2,
+        Stmt::SpPopMatrix { num } if microcode == Microcode::F3d => *num as usize,
         _ => 1,
     }
 }
 
 struct EmitCtx<'a> {
+    microcode: Microcode,
     mtx_addr: &'a HashMap<String, u32>,
     light_addr: &'a HashMap<String, u32>,
     lookat_addr: &'a HashMap<String, u32>,
@@ -799,8 +803,9 @@ fn assemble_inner(
     textures: TextureInputs<'_>,
     overrides: &HashMap<String, [[f32; 4]; 4]>,
     vtx_overrides: &HashMap<String, Vec<u8>>,
+    microcode: Microcode,
 ) -> Result<Image, Vec<Diag>> {
-    let (stmts, mut diags) = parse(source);
+    let (stmts, mut diags) = parse_for(source, microcode);
     let mut rdram: Vec<u8> = Vec::new();
 
     // --- data: viewport ---
@@ -993,8 +998,22 @@ fn assemble_inner(
     let mut cursor = rdram.len() as u32; // 8-aligned (data padded above)
     for (name, blk) in &blocks {
         block_addr.insert(name.clone(), cursor);
-        let words: usize = blk.iter().map(|(_l, s)| stmt_word_count(s)).sum();
-        cursor += (words * 8) as u32; // each block is a whole number of 8-byte words
+        let words = blk.iter().try_fold(0usize, |sum, (_l, s)| {
+            sum.checked_add(stmt_word_count(s, microcode))
+        });
+        let bytes = words
+            .and_then(|words| words.checked_mul(8))
+            .and_then(|bytes| u32::try_from(bytes).ok());
+        match bytes.and_then(|bytes| cursor.checked_add(bytes)) {
+            Some(next) => cursor = next,
+            None => diags.push(Diag {
+                line: blk.first().map_or(1, |(line, _)| *line),
+                msg: "display-list layout exceeds the 32-bit address space".into(),
+            }),
+        }
+    }
+    if !diags.is_empty() {
+        return Err(diags);
     }
     // group_blocks always produces a "main" block (implicit from top-level commands, or explicit).
     let entry_addr = *block_addr
@@ -1003,6 +1022,7 @@ fn assemble_inner(
     debug_assert!(entry_addr.is_multiple_of(8), "entry_addr must be 8-aligned"); // spec A5
 
     let ctx = EmitCtx {
+        microcode,
         mtx_addr: &mtx_addr,
         light_addr: &light_addr,
         lookat_addr: &lookat_addr,
@@ -1075,9 +1095,9 @@ pub struct Analysis {
 
 /// Analyze `source` without assembling it. See [`Analysis`] for the best-effort semantics when the
 /// source does not parse cleanly.
-pub fn analyze(source: &str) -> Analysis {
+pub fn analyze(source: &str, microcode: Microcode) -> Analysis {
     let (cleaned, gu_stmts, mut diagnostics) = extract_update(source);
-    let (statements, mut parser_diagnostics) = parse(&cleaned);
+    let (statements, mut parser_diagnostics) = parse_for(&cleaned, microcode);
     diagnostics.append(&mut parser_diagnostics);
 
     let references_time = gu_stmts.iter().any(|(_, s)| s.references_time())
@@ -1173,6 +1193,7 @@ fn assemble_at_internal(
     source: &str,
     time: f32,
     textures: TextureInputs<'_>,
+    microcode: Microcode,
 ) -> Result<Image, Vec<Diag>> {
     let (cleaned, gu_stmts, mut diags) = extract_update(source);
     let ctx = EvalCtx {
@@ -1182,7 +1203,7 @@ fn assemble_at_internal(
 
     // Parse the cleaned source once to collect Mtx names (for update-target validation), the named
     // `VtxSet` blocks, and the `morph` declarations (for per-frame interpolation).
-    let parsed = crate::parser::parse(&cleaned).0;
+    let parsed = crate::parser::parse_for(&cleaned, microcode).0;
     let declared: std::collections::HashSet<String> = parsed
         .iter()
         .filter_map(|(_, s)| match s {
@@ -1274,7 +1295,7 @@ fn assemble_at_internal(
         vtx_overrides.insert(m.pool.clone(), bytes);
     }
 
-    match assemble_inner(&cleaned, textures, &overrides, &vtx_overrides) {
+    match assemble_inner(&cleaned, textures, &overrides, &vtx_overrides, microcode) {
         Ok(image) if diags.is_empty() => Ok(image),
         Ok(_) => Err(diags),
         Err(mut e) => {
@@ -1295,7 +1316,7 @@ pub fn assemble_at(
         Some((rgba8, _, _)) => TextureInputs::Legacy(rgba8),
         None => TextureInputs::None,
     };
-    assemble_at_internal(source, time, inputs)
+    assemble_at_internal(source, time, inputs, Microcode::default())
 }
 
 /// Assemble `source` with one exact RGBA8 input for each named `Texture` declaration.
@@ -1303,8 +1324,9 @@ pub fn assemble_at_with_textures(
     source: &str,
     time: f32,
     textures: &[TextureInput<'_>],
+    microcode: Microcode,
 ) -> Result<Image, Vec<Diag>> {
-    assemble_at_internal(source, time, TextureInputs::Named(textures))
+    assemble_at_internal(source, time, TextureInputs::Named(textures), microcode)
 }
 
 /// Assemble a display-list source into a unified RDRAM image. Texture statements are diagnosed
@@ -1342,7 +1364,11 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
         | Stmt::GfxBlockEnd => {}
         Stmt::SpMatrix { name, flags } => match ctx.mtx_addr.get(name) {
             Some(&addr) => {
-                let (w0, w1) = gsp_matrix(addr, flags.proj, flags.load, flags.push);
+                let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                    gsp_matrix_f3d(addr, flags.proj, flags.load, flags.push)
+                } else {
+                    gsp_matrix(addr, flags.proj, flags.load, flags.push)
+                };
                 push_word(rdram, w0, w1);
             }
             None => diags.push(Diag {
@@ -1351,12 +1377,24 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
             }),
         },
         Stmt::SpViewport => {
-            let (w0, w1) = gsp_viewport(ctx.vp_addr);
+            let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                gsp_viewport_f3d(ctx.vp_addr)
+            } else {
+                gsp_viewport(ctx.vp_addr)
+            };
             push_word(rdram, w0, w1);
         }
         Stmt::SpPerspNormalize { name } => match ctx.persp_norm.get(name) {
             Some(&pn) => {
-                let (w0, w1) = gsp_persp_normalize(pn);
+                let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                    (
+                        (n64_gbi::consts::rsp_f3d::G_MOVEWORD as u32) << 24
+                            | n64_gbi::consts::rsp_f3d::G_MW_PERSPNORM as u32,
+                        pn as u32,
+                    )
+                } else {
+                    gsp_persp_normalize(pn)
+                };
                 push_word(rdram, w0, w1);
             }
             None => {
@@ -1369,19 +1407,35 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
             }
         },
         Stmt::SpSetGeometryMode(bits) => {
-            let (w0, w1) = gsp_set_geometrymode(*bits);
+            let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                gsp_set_geometrymode_f3d(*bits)
+            } else {
+                gsp_set_geometrymode(*bits)
+            };
             push_word(rdram, w0, w1);
         }
         Stmt::SpClearGeometryMode(bits) => {
-            let (w0, w1) = gsp_clear_geometrymode(*bits);
+            let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                gsp_clear_geometrymode_f3d(*bits)
+            } else {
+                gsp_clear_geometrymode(*bits)
+            };
             push_word(rdram, w0, w1);
         }
         Stmt::SpVertex { n, v0 } => {
-            let (w0, w1) = gsp_vertex(*v0, *n, ctx.vtx_addr);
+            let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                gsp_vertex_f3d(*v0, *n, ctx.vtx_addr)
+            } else {
+                gsp_vertex(*v0, *n, ctx.vtx_addr)
+            };
             push_word(rdram, w0, w1);
         }
         Stmt::Sp1Triangle { v0, v1, v2 } => {
-            let (w0, w1) = gsp_1triangle(*v0, *v1, *v2);
+            let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                gsp_1triangle_f3d(*v0, *v1, *v2)
+            } else {
+                gsp_1triangle(*v0, *v1, *v2)
+            };
             push_word(rdram, w0, w1);
         }
         Stmt::Sp2Triangles {
@@ -1392,28 +1446,54 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
             v4,
             v5,
         } => {
-            let (w0, w1) = gsp_2triangles(*v0, *v1, *v2, *v3, *v4, *v5);
-            push_word(rdram, w0, w1);
+            if ctx.microcode == Microcode::F3d {
+                for (a, b, c) in [(*v0, *v1, *v2), (*v3, *v4, *v5)] {
+                    let (w0, w1) = gsp_1triangle_f3d(a, b, c);
+                    push_word(rdram, w0, w1);
+                }
+            } else {
+                let (w0, w1) = gsp_2triangles(*v0, *v1, *v2, *v3, *v4, *v5);
+                push_word(rdram, w0, w1);
+            }
         }
         Stmt::SpPopMatrix { num } => {
-            let (w0, w1) = gsp_popmatrix(*num);
-            push_word(rdram, w0, w1);
+            if ctx.microcode == Microcode::F3d {
+                for _ in 0..*num {
+                    let (w0, w1) = gsp_popmatrix_f3d();
+                    push_word(rdram, w0, w1);
+                }
+            } else {
+                let (w0, w1) = gsp_popmatrix(*num);
+                push_word(rdram, w0, w1);
+            }
         }
         Stmt::SpDisplayList { target } => {
             if let Some(addr) = resolve_addr(target, ctx, line, diags) {
-                let (w0, w1) = gsp_displaylist(addr);
+                let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                    gsp_displaylist_f3d(addr)
+                } else {
+                    gsp_displaylist(addr)
+                };
                 push_word(rdram, w0, w1);
             }
         }
         Stmt::SpBranchList { target } => {
             if let Some(addr) = resolve_addr(target, ctx, line, diags) {
-                let (w0, w1) = gsp_branchlist(addr);
+                let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                    gsp_branchlist_f3d(addr)
+                } else {
+                    gsp_branchlist(addr)
+                };
                 push_word(rdram, w0, w1);
             }
         }
         Stmt::SpSegment { seg, base } => {
             if let Some(addr) = resolve_addr(base, ctx, line, diags) {
-                let (w0, w1) = gsp_segment(*seg, addr);
+                let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                    gsp_segment_f3d(*seg, addr)
+                } else {
+                    gsp_segment(*seg, addr)
+                };
                 push_word(rdram, w0, w1);
             }
         }
@@ -1424,6 +1504,22 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
             match ctx.light_addr.get(name) {
                 Some(&base) => {
                     let n = *num_dir as usize;
+                    if ctx.microcode == Microcode::F3d {
+                        let (w0, w1) = gsp_numlights_f3d(*num_dir as u8);
+                        push_word(rdram, w0, w1);
+                        for k in 0..=*num_dir {
+                            let Some(addr) = base.checked_add(k * 16) else {
+                                diags.push(Diag {
+                                    line,
+                                    msg: "light address exceeds the 32-bit address space".into(),
+                                });
+                                return;
+                            };
+                            let (w0, w1) = gsp_light_f3d(k as u8, addr);
+                            push_word(rdram, w0, w1);
+                        }
+                        return;
+                    }
                     // 1. gSPNumLights: MOVEWORD G_MW_NUMLIGHT, w1 = n*24
                     let w0_num = ((G_MOVEWORD as u32) << 24)
                         | ((G_MW_NUMLIGHT as u32) << 16)
@@ -1450,6 +1546,20 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
             use n64_gbi::consts::rsp_f3dex2::{G_MOVEMEM, G_MV_LIGHT};
             match ctx.lookat_addr.get(name) {
                 Some(&base) => {
+                    if ctx.microcode == Microcode::F3d {
+                        let (w0, w1) = gsp_lookat_f3d(0, base);
+                        push_word(rdram, w0, w1);
+                        let Some(y_addr) = base.checked_add(16) else {
+                            diags.push(Diag {
+                                line,
+                                msg: "lookat address exceeds the 32-bit address space".into(),
+                            });
+                            return;
+                        };
+                        let (w0, w1) = gsp_lookat_f3d(1, y_addr);
+                        push_word(rdram, w0, w1);
+                        return;
+                    }
                     // slot 0 (S): p0(8,8)=0, w1=base; slot 1 (T): p0(8,8)=3 (=(1*24)>>3), w1=base+16.
                     // slot 0 contributes `0 << 8` (a no-op, elided here to satisfy clippy::identity_op).
                     let w0_s = ((G_MOVEMEM as u32) << 24) | (G_MV_LIGHT as u32);
@@ -1464,7 +1574,11 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
             }
         }
         Stmt::DpSetRenderMode { mode1, mode2 } => {
-            let (w0, w1) = gdp_set_render_mode(*mode1, *mode2);
+            let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                gdp_set_render_mode_f3d(*mode1, *mode2)
+            } else {
+                gdp_set_render_mode(*mode1, *mode2)
+            };
             push_word(rdram, w0, w1);
         }
         Stmt::DpSetOtherModeL {
@@ -1472,7 +1586,11 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
             length,
             data,
         } => {
-            let (w0, w1) = gdp_set_other_mode_l(*shift, *length, *data);
+            let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                gsp_setothermode_l_f3d(*shift, *length, *data)
+            } else {
+                gdp_set_other_mode_l(*shift, *length, *data)
+            };
             push_word(rdram, w0, w1);
         }
         Stmt::DpSetFogColor { rgba } => {
@@ -1484,11 +1602,19 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
             push_word(rdram, w0, w1);
         }
         Stmt::SpFogPosition { min, max } => {
-            let (w0, w1) = gsp_fog_position(*min, *max);
+            let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                gsp_fog_position_f3d(*min, *max)
+            } else {
+                gsp_fog_position(*min, *max)
+            };
             push_word(rdram, w0, w1);
         }
         Stmt::SpEndDisplayList => {
-            let (w0, w1) = gsp_enddl();
+            let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                gsp_enddl_f3d()
+            } else {
+                gsp_enddl()
+            };
             push_word(rdram, w0, w1);
         }
         Stmt::DpLoadTextureBlock {
@@ -1558,7 +1684,11 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
                     msg: "texture statements require assemble_with_texture()".into(),
                 });
             } else {
-                let (w0, w1) = gsp_texture(*sc, *tc, *level, *tile, *on);
+                let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                    gsp_texture_f3d(*sc, *tc, *level, *tile, *on)
+                } else {
+                    gsp_texture(*sc, *tc, *level, *tile, *on)
+                };
                 push_word(rdram, w0, w1);
             }
         }
@@ -1573,7 +1703,11 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
                     msg: "texture statements require assemble_with_texture()".into(),
                 });
             } else {
-                let (w0, w1) = gdp_set_other_mode_h(*shift, *length, *data);
+                let (w0, w1) = if ctx.microcode == Microcode::F3d {
+                    gsp_setothermode_h_f3d(*shift, *length, *data)
+                } else {
+                    gdp_set_other_mode_h(*shift, *length, *data)
+                };
                 push_word(rdram, w0, w1);
             }
         }
@@ -1702,9 +1836,14 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
             dtdy,
             flip,
         } => {
-            for (w0, w1) in gsp_texture_rectangle(
+            let mut words = gsp_texture_rectangle(
                 *ulx, *uly, *lrx, *lry, *tile, *uls, *ult, *dsdx, *dtdy, *flip,
-            ) {
+            );
+            if ctx.microcode == Microcode::F3d {
+                words[1].0 = (n64_gbi::consts::rsp_f3d::G_RDPHALF_1 as u32) << 24;
+                words[2].0 = (n64_gbi::consts::rsp_f3d::G_RDPHALF_2 as u32) << 24;
+            }
+            for (w0, w1) in words {
                 push_word(rdram, w0, w1);
             }
         }
@@ -1990,7 +2129,7 @@ Gfx main[] = { gsSPVertex(verts, 1, 0) gsSP1Triangle(0,0,0,0) gsSPEndDisplayList
 ";
         let asm = crate::asm::assemble_at(src, std::f32::consts::FRAC_PI_2, None).unwrap();
         assert!(
-            crate::asm::analyze(src).references_time,
+            crate::asm::analyze(src, Microcode::default()).references_time,
             "morph weight reads time -> must be time-variant"
         );
         let v = asm.vtx_addr as usize;
@@ -2044,12 +2183,15 @@ mod layout_tests {
     #[test]
     fn fill_rectangle_has_one_word() {
         assert_eq!(
-            stmt_word_count(&Stmt::DpFillRectangle {
-                ulx: 0,
-                uly: 0,
-                lrx: 1280,
-                lry: 960
-            }),
+            stmt_word_count(
+                &Stmt::DpFillRectangle {
+                    ulx: 0,
+                    uly: 0,
+                    lrx: 1280,
+                    lry: 960
+                },
+                Microcode::default()
+            ),
             1
         );
     }
@@ -2057,18 +2199,21 @@ mod layout_tests {
     #[test]
     fn texture_rectangle_has_three_words() {
         assert_eq!(
-            stmt_word_count(&Stmt::SpTextureRectangle {
-                ulx: 0,
-                uly: 0,
-                lrx: 1280,
-                lry: 960,
-                tile: 0,
-                uls: 44,
-                ult: 52,
-                dsdx: 1024,
-                dtdy: 512,
-                flip: false
-            }),
+            stmt_word_count(
+                &Stmt::SpTextureRectangle {
+                    ulx: 0,
+                    uly: 0,
+                    lrx: 1280,
+                    lry: 960,
+                    tile: 0,
+                    uls: 44,
+                    ult: 52,
+                    dsdx: 1024,
+                    dtdy: 512,
+                    flip: false
+                },
+                Microcode::default()
+            ),
             3
         );
     }

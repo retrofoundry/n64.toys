@@ -1,6 +1,19 @@
 use n64_toys_asm::{
-    analyze, assemble_at, assemble_at_with_textures, assemble_with_texture, TextureInput,
+    analyze as analyze_target, assemble_at, assemble_at_with_textures as assemble_target,
+    assemble_with_texture, Analysis, Microcode, TextureInput,
 };
+
+fn analyze(source: &str) -> Analysis {
+    analyze_target(source, Microcode::default())
+}
+
+fn assemble_at_with_textures<'a>(
+    source: &str,
+    time: f32,
+    textures: &[TextureInput<'a>],
+) -> Result<n64_toys_asm::Image, Vec<n64_toys_asm::Diag>> {
+    assemble_target(source, time, textures, Microcode::default())
+}
 
 fn input<'a>(name: &'a str, rgba8: &'a [u8], width: u32, height: u32) -> TextureInput<'a> {
     TextureInput {

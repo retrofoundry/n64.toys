@@ -1,4 +1,6 @@
-use n64_toys_asm::{analyze, assemble_at, assemble_at_with_textures, Diag, TextureInput};
+use n64_toys_asm::{
+    analyze, assemble_at, assemble_at_with_textures, Diag, Microcode, TextureInput,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -115,7 +117,7 @@ fn record(source: &str, time_bits: u32, profile: &str, textures: &[FrozenTexture
                 height: texture.height,
             })
             .collect();
-        assemble_at_with_textures(source, time, &inputs)
+        assemble_at_with_textures(source, time, &inputs, Microcode::F3dex2)
     };
     match result {
         Ok(image) => {
@@ -125,7 +127,7 @@ fn record(source: &str, time_bits: u32, profile: &str, textures: &[FrozenTexture
                 source_map.update(addr.to_be_bytes());
                 source_map.update((*line as u64).to_be_bytes());
             }
-            let analysis = analyze(source);
+            let analysis = analyze(source, Microcode::F3dex2);
             json!({
                 "ok": true,
                 "rdram_sha256": format!("{:x}", Sha256::digest(&image.rdram)),
@@ -164,7 +166,7 @@ fn build_corpus(expected: Option<&Corpus>) -> Corpus {
         };
         let source = fs::read_to_string(&path).unwrap_or_else(|error| panic!("{path:?}: {error}"));
         let declared: Vec<_> = if expected.is_none() {
-            analyze(&source)
+            analyze(&source, Microcode::F3dex2)
                 .textures
                 .into_iter()
                 .map(|texture| FrozenTexture {

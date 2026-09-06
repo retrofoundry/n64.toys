@@ -5,6 +5,13 @@ pub(crate) mod asm;
 mod expr;
 mod parser;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Microcode {
+    #[default]
+    F3dex2,
+    F3d,
+}
+
 pub use asm::{
     analyze, assemble, assemble_at, assemble_at_with_textures, assemble_with_texture, Analysis,
     Image, TextureDecl, TextureInput,
