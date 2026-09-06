@@ -3,8 +3,8 @@ resolver = "2"
 members = ["crates/asm", "crates/web", "tools/asm-compat"]
 
 [workspace.dependencies]
-n64-gbi = { git = "https://github.com/retrofoundry/fast3d-rs", rev = "35c0ccf4cc428a4bc1c3f8fe7fbb3a50afcf4cae" }
-fast3d = { git = "https://github.com/retrofoundry/fast3d-rs", rev = "35c0ccf4cc428a4bc1c3f8fe7fbb3a50afcf4cae", default-features = false }
+n64-gbi = { git = "https://github.com/retrofoundry/fast3d-rs", rev = "2f8949a" }
+fast3d = { git = "https://github.com/retrofoundry/fast3d-rs", rev = "2f8949a", default-features = false }
 wgpu = "29.0"
 bytemuck = { version = "1", features = ["derive"] }
 log = "0.4"
