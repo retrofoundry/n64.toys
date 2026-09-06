@@ -72,8 +72,11 @@ fn source_map_tracks_command_lines_and_excludes_data() {
 
 #[test]
 fn source_map_tracks_every_texture_macro_word() {
-    for (format, gbi_format, size, words) in [("RGBA16", "RGBA", "16b", 7), ("CI8", "CI", "8b", 11)]
-    {
+    for (format, gbi_format, size, words) in [
+        ("RGBA16", "RGBA", "16b", 7),
+        ("CI8", "CI", "8b", 12),
+        ("CI4", "CI", "4b", 12),
+    ] {
         let source = format!(
             "Texture tex = {{ 2, 2, {format} }}\n\n\
 gsDPLoadTextureBlock(tex, G_IM_FMT_{gbi_format}, G_IM_SIZ_{size}, 2, 2)\n\
@@ -104,6 +107,44 @@ gsSPEndDisplayList()\n"
             (img.entry_addr + words as u32 * 8, 4)
         );
         assert_eq!(img.line_at(u64::from(img.tex_addr)), None);
+    }
+}
+
+#[test]
+fn source_map_tracks_ci_texture_before_later_block_call() {
+    for (format, size) in [("CI4", "4b"), ("CI8", "8b")] {
+        let source = format!(
+            "Texture tex = {{ 2, 2, {format} }}\n\
+Gfx main[] = {{\n\
+  gsDPLoadTextureBlock(tex, G_IM_FMT_CI, G_IM_SIZ_{size}, 2, 2)\n\
+  gsSPDisplayList(sub)\n\
+  gsSPEndDisplayList()\n\
+}}\n\
+Gfx sub[] = {{\n\
+  gsDPSetEnvColor(1, 2, 3, 4)\n\
+  gsSPEndDisplayList()\n\
+}}\n"
+        );
+        let img = assemble_with_texture(&source, &[255; 16], 2, 2)
+            .expect("assemble CI texture before later block");
+        let commands = &img.rdram[img.entry_addr as usize..];
+        assert_eq!(commands.len(), 16 * 8, "{format}");
+        assert_eq!(&commands[12 * 8..12 * 8 + 4], &0xDE000000u32.to_be_bytes());
+        let sub_addr = img.entry_addr + 14 * 8;
+        assert_eq!(&commands[12 * 8 + 4..13 * 8], &sub_addr.to_be_bytes());
+        assert_eq!(
+            &commands[14 * 8..15 * 8],
+            &0xFB00000001020304u64.to_be_bytes()
+        );
+        assert_eq!(img.source_map.len(), 16);
+        for (index, line) in [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 5, 8, 9]
+            .into_iter()
+            .enumerate()
+        {
+            let addr = img.entry_addr + index as u32 * 8;
+            assert_eq!(img.source_map[index], (addr, line), "{format}");
+            assert_eq!(img.line_at(u64::from(addr)), Some(line), "{format}");
+        }
     }
 }
 
@@ -220,23 +261,20 @@ gsSPEndDisplayList()
     assert_eq!(img.rdram[pal_base + 5], 0xC1, "palette[2] lo");
 
     let e = img.entry_addr as usize;
-    let mut found_tlut = false;
-    let mut off = e;
-    while off + 8 <= img.rdram.len() {
-        let w0 = u32::from_be_bytes(img.rdram[off..off + 4].try_into().unwrap());
-        if w0 >> 24 == 0xF0 {
-            found_tlut = true;
-            break;
-        }
-        if w0 >> 24 == 0xDF {
-            break;
-        }
-        off += 8;
+    for (index, (w0, w1)) in [
+        (0xFD100000u32, pal_base as u32),
+        (0xF5100100, 0x07000000),
+        (0xE6000000, 0),
+        (0xF0000000, 0x07008000),
+        (0xE7000000, 0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let off = e + index * 8;
+        assert_eq!(&img.rdram[off..off + 4], &w0.to_be_bytes());
+        assert_eq!(&img.rdram[off + 4..off + 8], &w1.to_be_bytes());
     }
-    assert!(
-        found_tlut,
-        "G_LOADTLUT (opcode 0xF0) not found in display list"
-    );
 }
 
 #[test]
@@ -271,23 +309,20 @@ gsSPEndDisplayList()
     assert_eq!(img.rdram[pal_base + 3], 0x01, "CI4 palette[1] lo (alpha=1)");
 
     let e = img.entry_addr as usize;
-    let mut found_tlut = false;
-    let mut off = e;
-    while off + 8 <= img.rdram.len() {
-        let w0 = u32::from_be_bytes(img.rdram[off..off + 4].try_into().unwrap());
-        if w0 >> 24 == 0xF0 {
-            found_tlut = true;
-            break;
-        }
-        if w0 >> 24 == 0xDF {
-            break;
-        }
-        off += 8;
+    for (index, (w0, w1)) in [
+        (0xFD100000u32, pal_base as u32),
+        (0xF5100100, 0x07000000),
+        (0xE6000000, 0),
+        (0xF0000000, 0x07004000),
+        (0xE7000000, 0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let off = e + index * 8;
+        assert_eq!(&img.rdram[off..off + 4], &w0.to_be_bytes());
+        assert_eq!(&img.rdram[off + 4..off + 8], &w1.to_be_bytes());
     }
-    assert!(
-        found_tlut,
-        "G_LOADTLUT (opcode 0xF0) not found in CI4 display list"
-    );
 }
 
 #[test]

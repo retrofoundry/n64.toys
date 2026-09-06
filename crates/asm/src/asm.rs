@@ -341,11 +341,9 @@ fn translate_mtx(t: [f32; 3]) -> [[f32; 4]; 4] {
 /// pre-size blocks so block addresses are known before any block is emitted (forward references).
 fn stmt_word_count(s: &Stmt, microcode: Microcode) -> usize {
     match s {
-        // CI8 (fmt=2,siz=1) and CI4 (fmt=2,siz=0): 4 TLUT-load commands + 7 standard texture-block
-        // commands = 11. All other formats: gdp_load_texture_block returns 7 words.
         Stmt::DpLoadTextureBlock { fmt, siz, .. } => {
             if *fmt == 2 && (*siz == 0 || *siz == 1) {
-                11
+                12
             } else {
                 7
             }
@@ -1629,19 +1627,16 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
             masks,
         } => match ctx.tex.and_then(|t| t.get(tex_name)) {
             Some(&addr) => {
-                // CI8 (fmt=2, siz=1) and CI4 (fmt=2, siz=0): prepend 4 TLUT-load commands before
-                // the standard 7. SetTextureImage (palette addr) → LoadSync → LoadTLUT → PipeSync.
                 if *fmt == 2 && (*siz == 0 || *siz == 1) {
                     match ctx.ci_pal.get(tex_name) {
                         Some(&(pal_addr, pal_count)) => {
-                            // lrt encodes (count-1) in 10.2 fixed-point units (<<2); lands in bits[11:0].
-                            // HLE recovers: count = (lrt>>2)+1 = pal_count. ✓
-                            let lrt = (pal_count - 1) << 2;
                             let (w0, w1) = gdp_set_texture_image(0, 2, 1, pal_addr);
+                            push_word(rdram, w0, w1);
+                            let (w0, w1) = gdp_set_tile(0, 2, 0, 0x100, 7, 0, 0, 0, 0, 0, 0, 0);
                             push_word(rdram, w0, w1);
                             let (w0, w1) = gdp_load_sync();
                             push_word(rdram, w0, w1);
-                            let (w0, w1) = gdp_load_tlut(7, lrt);
+                            let (w0, w1) = gdp_load_tlut(7, pal_count - 1);
                             push_word(rdram, w0, w1);
                             let (w0, w1) = gdp_pipe_sync();
                             push_word(rdram, w0, w1);
