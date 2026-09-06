@@ -49,10 +49,12 @@
                 <span class="truncate" style={`padding-left:${Math.min(row.depthBefore, 12) * 8}px`} title={`depth ${row.depthBefore}: ${sources.get(row.line ?? 0) ?? "unmapped"}`}>{sources.get(row.line ?? 0) ?? "unmapped"}</span>
                 <span>{row.decoded.mnemonic}</span><span>{emittedCount(row)}</span>
               </button>
+              {#if row.words.length > 1}
               <details class="px-3 text-[10px]">
-                <summary>Words for {row.seq}{row.words.length > 1 ? ` · ${row.words.length - 1} continuation(s)` : ""}</summary>
+                <summary>Words for {row.seq} · {row.words.length - 1} continuation(s)</summary>
                 {#each row.words as word}<p><code>{word.pc}: {word.w0} {word.w1}</code> · address {word.w1Addr} · line {word.line ?? "unmapped"}</p>{/each}
               </details>
+              {/if}
             {/each}
           </div>
         </div>
