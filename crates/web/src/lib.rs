@@ -86,7 +86,7 @@ fn map_diags(diags: &[Diagnostic], source_map: &[(u32, usize)]) -> Vec<DiagOut> 
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 fn map_analysis(source: &str) -> AnalysisOut {
-    let out = fast3d::asm::analyze(source);
+    let out = n64_toys_asm::analyze(source);
     AnalysisOut {
         textures: out
             .textures
@@ -114,10 +114,10 @@ fn map_analysis(source: &str) -> AnalysisOut {
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-fn borrow_texture_inputs(inputs: &[TextureInputIn]) -> Vec<fast3d::asm::TextureInput<'_>> {
+fn borrow_texture_inputs(inputs: &[TextureInputIn]) -> Vec<n64_toys_asm::TextureInput<'_>> {
     inputs
         .iter()
-        .map(|input| fast3d::asm::TextureInput {
+        .map(|input| n64_toys_asm::TextureInput {
             name: &input.name,
             rgba8: &input.rgba,
             width: input.width,
@@ -215,7 +215,7 @@ impl Renderer {
             }
         };
         let borrowed = borrow_texture_inputs(&inputs);
-        let image = match fast3d::asm::assemble_at_with_textures(source, time, &borrowed) {
+        let image = match n64_toys_asm::assemble_at_with_textures(source, time, &borrowed) {
             Ok(image) => image,
             Err(diags) => {
                 return to_js(&RenderOut {
@@ -290,11 +290,11 @@ mod tests {
             "/../../web-app/src/lib/docs/starter.n64"
         ));
         for t in [0.0f32, 1.37f32] {
-            let image = fast3d::asm::assemble_at_with_textures(src, t, &[])
+            let image = n64_toys_asm::assemble_at_with_textures(src, t, &[])
                 .unwrap_or_else(|d| panic!("starter must assemble at t={t}: {d:?}"));
             assert!(image.entry_addr > 0);
         }
-        let analysis = fast3d::asm::analyze(src);
+        let analysis = n64_toys_asm::analyze(src);
         assert!(
             analysis.diagnostics.is_empty(),
             "{:?}",
@@ -366,7 +366,7 @@ mod tests {
             .position(|line| line.starts_with("gsSP1Triangle("))
             .unwrap()
             + 1;
-        let image = fast3d::asm::assemble_at_with_textures(&source, 0.0, &[]).unwrap();
+        let image = n64_toys_asm::assemble_at_with_textures(&source, 0.0, &[]).unwrap();
         let at = image
             .source_map
             .iter()

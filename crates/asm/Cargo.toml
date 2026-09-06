@@ -1,0 +1,9 @@
+[package]
+name = "n64-toys-asm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+n64-gbi.workspace = true

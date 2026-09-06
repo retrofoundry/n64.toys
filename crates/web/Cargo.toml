@@ -7,7 +7,8 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-fast3d = { git = "https://github.com/retrofoundry/fast3d-rs", rev = "696a67d9ecddda65017348faf73714599b23a7a7", features = ["asm"] }
+fast3d.workspace = true
+n64-toys-asm = { path = "../asm" }
 wgpu.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
