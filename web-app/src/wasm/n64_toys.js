@@ -42,6 +42,22 @@ export class Renderer {
         const ret = wasm.renderer_render(this.__wbg_ptr, ptr0, len0, time, textures, ptr1, len1);
         return ret;
     }
+    /**
+     * @param {string} source
+     * @param {number} time
+     * @param {any} textures
+     * @param {string} microcode
+     * @param {number} command_count
+     * @returns {any}
+     */
+    render_prefix(source, time, textures, microcode, command_count) {
+        const ptr0 = passStringToWasm0(source, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(microcode, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.renderer_render_prefix(this.__wbg_ptr, ptr0, len0, time, textures, ptr1, len1, command_count);
+        return ret;
+    }
     shutdown() {
         const ptr = this.__destroy_into_raw();
         wasm.renderer_shutdown(ptr);
@@ -60,6 +76,22 @@ export function analyze(source, microcode) {
     const ptr1 = passStringToWasm0(microcode, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ret = wasm.analyze(ptr0, len0, ptr1, len1);
+    return ret;
+}
+
+/**
+ * @param {string} source
+ * @param {number} time
+ * @param {any} textures
+ * @param {string} microcode
+ * @returns {any}
+ */
+export function inspect(source, time, textures, microcode) {
+    const ptr0 = passStringToWasm0(source, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(microcode, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.inspect(ptr0, len0, time, textures, ptr1, len1);
     return ret;
 }
 
@@ -120,6 +152,10 @@ function __wbg_get_imports() {
         __wbg___wbindgen_is_object_5ae8e5880f2c1fbd: function(arg0) {
             const val = arg0;
             const ret = typeof(val) === 'object' && val !== null;
+            return ret;
+        },
+        __wbg___wbindgen_is_string_cd444516edc5b180: function(arg0) {
+            const ret = typeof(arg0) === 'string';
             return ret;
         },
         __wbg___wbindgen_is_undefined_9e4d92534c42d778: function(arg0) {
@@ -430,6 +466,10 @@ function __wbg_get_imports() {
                 state0.a = state0.b = 0;
             }
         },
+        __wbg_new_dca287b076112a51: function() {
+            const ret = new Map();
+            return ret;
+        },
         __wbg_new_dd2b680c8bf6ae29: function(arg0) {
             const ret = new Uint8Array(arg0);
             return ret;
@@ -518,6 +558,10 @@ function __wbg_get_imports() {
         },
         __wbg_setVertexBuffer_6f08f530486e57ea: function(arg0, arg1, arg2, arg3, arg4) {
             arg0.setVertexBuffer(arg1 >>> 0, arg2, arg3, arg4);
+        },
+        __wbg_set_1eb0999cf5d27fc8: function(arg0, arg1, arg2) {
+            const ret = arg0.set(arg1, arg2);
+            return ret;
         },
         __wbg_set_25cf9deff6bf0ea8: function(arg0, arg1, arg2) {
             arg0.set(arg1, arg2 >>> 0);
@@ -1106,7 +1150,7 @@ function __wbg_get_imports() {
             arg0.writeTexture(arg1, getArrayU8FromWasm0(arg2, arg3), arg4, arg5);
         }, arguments); },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 163, function: Function { arguments: [Externref], shim_idx: 164, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 174, function: Function { arguments: [Externref], shim_idx: 175, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h0935b00e02a5d6d9, wasm_bindgen__convert__closures_____invoke__hb79a1d8cb4268fc4);
             return ret;
         },

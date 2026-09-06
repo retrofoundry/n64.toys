@@ -10,10 +10,13 @@ export class Renderer {
      * Assemble the source with texture inputs, interpret it, and draw to the canvas.
      */
     render(source: string, time: number, textures: any, microcode: string): any;
+    render_prefix(source: string, time: number, textures: any, microcode: string, command_count: number): any;
     shutdown(): void;
 }
 
 export function analyze(source: string, microcode: string): any;
+
+export function inspect(source: string, time: number, textures: any, microcode: string): any;
 
 export function start(): void;
 
@@ -23,8 +26,10 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_renderer_free: (a: number, b: number) => void;
     readonly analyze: (a: number, b: number, c: number, d: number) => any;
+    readonly inspect: (a: number, b: number, c: number, d: any, e: number, f: number) => any;
     readonly renderer_init: (a: any) => any;
     readonly renderer_render: (a: number, b: number, c: number, d: number, e: any, f: number, g: number) => any;
+    readonly renderer_render_prefix: (a: number, b: number, c: number, d: number, e: any, f: number, g: number, h: number) => any;
     readonly renderer_shutdown: (a: number) => void;
     readonly start: () => void;
     readonly wasm_bindgen__closure__destroy__h0935b00e02a5d6d9: (a: number, b: number) => void;
