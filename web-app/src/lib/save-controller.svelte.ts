@@ -392,10 +392,10 @@ export class SaveController {
     try {
       await this.pg.newDraft();
       this.adoptLoadedToy(null);
+      this.pg.settings.microcode = pending.payload.microcode;
       this.pg.source = pending.payload.source;
       this.pg.title = pending.payload.title;
       this.pg.description = pending.payload.description;
-      this.pg.settings.microcode = pending.payload.microcode;
       this.visibility = pending.payload.visibility;
       this.#forkSourceSlug = pending.payload.forkSourceSlug;
       for (const texture of pending.payload.textures) {

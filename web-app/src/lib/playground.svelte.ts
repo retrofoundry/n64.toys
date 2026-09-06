@@ -342,11 +342,13 @@ export class Playground {
     const snapshot = Object.freeze({
       source: this.source,
       textures: this.#renderTextures,
+      microcode: this.settings.microcode,
     });
     return this.#renderer.render(
       snapshot.source,
       t,
       snapshot.textures,
+      snapshot.microcode,
     ) as RenderResult | null;
   }
 
@@ -370,7 +372,10 @@ export class Playground {
   }
 
   reconcileTextureDeclarations(): void {
-    const parsed = analyze(this.source) as SourceAnalysis;
+    const parsed = analyze(
+      this.source,
+      this.settings.microcode,
+    ) as SourceAnalysis;
     const result = reconcileTextureSlots(this.textureSlots, parsed.textures);
     for (const asset of result.orphaned) URL.revokeObjectURL(asset.previewUrl);
     this.#setTextureSlots(result.slots);
@@ -641,6 +646,7 @@ export class Playground {
     this.#debounce = undefined;
     this.#revokeAssets(this.textureSlots);
     this.#source = "";
+    this.settings.microcode = "F3DEX2";
     this.title = "";
     this.description = "";
     this.forkOf = undefined;
@@ -662,7 +668,7 @@ export class Playground {
 
   /** Load a toy into the editor as a transient Draft (the editor never mutates the persisted Toy). */
   async loadToy(toy: Toy, { signal }: TransitionOptions = {}): Promise<void> {
-    const parsed = analyze(toy.source) as SourceAnalysis;
+    const parsed = analyze(toy.source, toy.microcode) as SourceAnalysis;
     const declarations = reconcileTextureSlots([], parsed.textures).slots.map(
       (slot) => slot.declaration,
     );
@@ -735,6 +741,7 @@ export class Playground {
     this.pause(); // cancel any in-flight rAF loop from the previous toy
     this.#revokeAssets(this.textureSlots);
     this.#source = toy.source;
+    this.settings.microcode = toy.microcode;
     this.title = toy.title;
     this.description = toy.description;
     this.forkOf = toy.slug;

@@ -50,7 +50,12 @@ function pngBlob(rgba: [number, number, number, number]): Blob {
   return new Blob([PNG_SIGNATURE, new Uint8Array(rgba)], { type: "image/png" });
 }
 
-function toy(slug: string, source: string, textures: Toy["textures"]): Toy {
+function toy(
+  slug: string,
+  source: string,
+  textures: Toy["textures"],
+  microcode = "F3DEX2",
+): Toy {
   return {
     slug,
     title: slug,
@@ -62,7 +67,7 @@ function toy(slug: string, source: string, textures: Toy["textures"]): Toy {
     isOwner: false,
     createdAt: "2026-07-22T12:00:00.000Z",
     schemaVersion: 1,
-    microcode: "F3DEX2",
+    microcode,
     source,
     textures,
   };
@@ -315,6 +320,7 @@ describe("Playground named texture lifecycle", () => {
         }),
         expect.objectContaining({ name: "mask", rgba: expect.any(Uint8Array) }),
       ]),
+      "F3DEX2",
     );
     const snapshots = wasm.render.mock.lastCall?.[2] as Array<{
       name: string;
@@ -608,6 +614,41 @@ describe("Playground PNG validation", () => {
 });
 
 describe("Playground toy transitions", () => {
+  it("analyzes and renders a loaded toy with its microcode", async () => {
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+    wasm.analyze.mockClear();
+    wasm.render.mockClear();
+
+    await playground.loadToy(toy("f3d", "f3d source", [], "F3D"));
+
+    expect(playground.settings.microcode).toBe("F3D");
+    expect(wasm.analyze).toHaveBeenCalledWith("f3d source", "F3D");
+    expect(wasm.render).toHaveBeenCalledWith("f3d source", 0, [], "F3D");
+  });
+
+  it("resets a new draft to F3DEX2 before analyzing and rendering the starter", async () => {
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+    playground.settings.microcode = "F3D";
+    wasm.analyze.mockClear();
+    wasm.render.mockClear();
+
+    await playground.newDraft();
+
+    expect(playground.settings.microcode).toBe("F3DEX2");
+    expect(wasm.analyze).toHaveBeenCalledWith(
+      expect.stringContaining("gsSP1Triangle"),
+      "F3DEX2",
+    );
+    expect(wasm.render).toHaveBeenCalledWith(
+      expect.stringContaining("gsSP1Triangle"),
+      0,
+      [],
+      "F3DEX2",
+    );
+  });
+
   it("keeps internal bin fixture decoding for exact named toy assets", async () => {
     wasm.analyze.mockReturnValue({
       textures: [declaration("tex")],
@@ -717,6 +758,7 @@ describe("Playground toy transitions", () => {
       "partial source",
       0,
       expect.arrayContaining([expect.objectContaining({ name: "loaded" })]),
+      "F3DEX2",
     );
   });
 
@@ -792,7 +834,17 @@ describe("Playground capture rendering", () => {
       "current capture source",
       2.5,
       [],
+      "F3DEX2",
     );
+  });
+
+  it("captures with the selected microcode", async () => {
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+    playground.settings.microcode = "F3D";
+
+    expect(playground.renderForCapture()).toBe(true);
+    expect(wasm.render).toHaveBeenLastCalledWith("", 0, [], "F3D");
   });
 
   it.each([
@@ -823,6 +875,16 @@ describe("Playground capture rendering", () => {
 });
 
 describe("Playground animation analysis", () => {
+  it("analyzes source with the selected microcode", async () => {
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+    playground.settings.microcode = "F3D";
+    wasm.analyze.mockClear();
+
+    playground.source = "f3d source";
+
+    expect(wasm.analyze).toHaveBeenCalledWith("f3d source", "F3D");
+  });
   it("sets isAnimated from the analysis pass, not the render result", async () => {
     wasm.analyze.mockReturnValue({
       textures: [],
@@ -911,6 +973,32 @@ describe("Playground animation analysis", () => {
 });
 
 describe("Playground diagnostics", () => {
+  it("reports a target-specific error and recovers at the paused time", async () => {
+    wasm.render.mockImplementation(
+      (_source: string, _time: number, _textures: unknown, microcode: string) =>
+        microcode === "F3D"
+          ? { diags: [], presented: false, error: "F3D source error" }
+          : { diags: [], presented: true, error: undefined },
+    );
+    const playground = new Playground();
+    await playground.init({} as HTMLCanvasElement);
+    playground.time = 2.5;
+    playground.settings.microcode = "F3D";
+    playground.reconcileTextureDeclarations();
+    playground.run();
+
+    expect(playground.errored).toBe(true);
+    expect(wasm.analyze).toHaveBeenLastCalledWith("", "F3D");
+    expect(wasm.render).toHaveBeenLastCalledWith("", 2.5, [], "F3D");
+
+    playground.settings.microcode = "F3DEX2";
+    playground.reconcileTextureDeclarations();
+    playground.run();
+
+    expect(playground.errored).toBe(false);
+    expect(wasm.render).toHaveBeenLastCalledWith("", 2.5, [], "F3DEX2");
+  });
+
   it("blocks rendering and merges declaration then product-limit diagnostics", async () => {
     wasm.analyze.mockReturnValue({
       textures: Array.from({ length: 9 }, (_, index) =>

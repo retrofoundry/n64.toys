@@ -1,4 +1,8 @@
-use n64_toys_asm::analyze;
+use n64_toys_asm::{analyze as analyze_target, Microcode};
+
+fn analyze(source: &str) -> n64_toys_asm::Analysis {
+    analyze_target(source, Microcode::default())
+}
 
 const SPIN: &str = "\
 Mtx model = identity()

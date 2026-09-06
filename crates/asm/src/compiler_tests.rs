@@ -48,7 +48,13 @@ fn parser_accepts_gsdp_set_render_mode_preset() {
 
 #[test]
 fn source_map_tracks_command_lines_and_excludes_data() {
-    let img = crate::asm::assemble_at_with_textures(SOURCE_MAP_SRC, 0.0, &[]).expect("assemble");
+    let img = crate::asm::assemble_at_with_textures(
+        SOURCE_MAP_SRC,
+        0.0,
+        &[],
+        crate::Microcode::default(),
+    )
+    .expect("assemble");
     assert_eq!(img.source_map.len(), 9);
     assert_eq!(img.rdram.len() - img.entry_addr as usize, 9 * 8);
     for (index, line) in (8..=16).enumerate() {
@@ -83,6 +89,7 @@ gsSPEndDisplayList()\n"
                 width: 2,
                 height: 2,
             }],
+            crate::Microcode::default(),
         )
         .expect("assemble texture macro");
         assert_eq!(img.source_map.len(), words + 1, "{format}");
@@ -286,7 +293,8 @@ gsSPEndDisplayList()
 #[test]
 fn source_map_resolves_missing_render_mode_command_address() {
     let source = SOURCE_MAP_SRC.replace("gsDPSetRenderMode(G_RM_OPA_SURF, G_RM_OPA_SURF2)", "");
-    let image = crate::assemble_at_with_textures(&source, 0.0, &[]).unwrap();
+    let image =
+        crate::assemble_at_with_textures(&source, 0.0, &[], crate::Microcode::default()).unwrap();
     assert_eq!(image.line_at(u64::from(image.entry_addr) + 7 * 8), Some(16));
 }
 
@@ -312,10 +320,22 @@ fn ci8_encodes_palette_indices() {
 
 #[test]
 fn morphcube_references_time() {
-    assert!(crate::analyze(include_str!("../tests/scenes/morphcube.n64")).references_time);
+    assert!(
+        crate::analyze(
+            include_str!("../tests/scenes/morphcube.n64"),
+            crate::Microcode::default()
+        )
+        .references_time
+    );
 }
 
 #[test]
 fn perspective_cube_references_time() {
-    assert!(crate::analyze(include_str!("../tests/scenes/perspective-cube.n64")).references_time);
+    assert!(
+        crate::analyze(
+            include_str!("../tests/scenes/perspective-cube.n64"),
+            crate::Microcode::default()
+        )
+        .references_time
+    );
 }

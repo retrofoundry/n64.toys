@@ -1,6 +1,9 @@
 //! Line-based parser for the gbi-macro source subset.
 
-use crate::expr::{parse_expr, Expr};
+use crate::{
+    expr::{parse_expr, Expr},
+    Microcode,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diag {
@@ -625,6 +628,18 @@ fn parse_u32_token(tok: &str) -> Option<u32> {
     }
 }
 
+fn parse_target_u32(tok: &str, microcode: Microcode) -> Option<u32> {
+    if microcode != Microcode::F3d {
+        return parse_u32_token(tok);
+    }
+    let t = tok.trim();
+    if let Some(hex) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+        u32::from_str_radix(hex, 16).ok()
+    } else {
+        t.parse::<u32>().ok()
+    }
+}
+
 /// Parse an image format mnemonic to the numeric fmt value (0=RGBA, 1=YUV, 2=CI, 3=IA, 4=I).
 fn parse_img_fmt(tok: &str) -> Option<u32> {
     match tok.trim() {
@@ -686,7 +701,22 @@ fn parse_cc_mnemonic(tok: &str) -> Option<u32> {
     }
 }
 
-fn geom_flag(name: &str) -> Option<u32> {
+fn geom_flag(name: &str, microcode: Microcode) -> Option<u32> {
+    if microcode == Microcode::F3d {
+        return match name.trim() {
+            "G_SHADE" => Some(n64_gbi::consts::rsp_f3d::G_SHADE),
+            "G_SHADING_SMOOTH" => Some(n64_gbi::consts::rsp_f3d::G_SHADING_SMOOTH),
+            "G_LIGHTING" => Some(n64_gbi::consts::rsp_f3d::G_LIGHTING),
+            "G_CULL_FRONT" => Some(n64_gbi::consts::rsp_f3d::G_CULL_FRONT),
+            "G_CULL_BACK" => Some(n64_gbi::consts::rsp_f3d::G_CULL_BACK),
+            "G_CULL_BOTH" => Some(n64_gbi::consts::rsp_f3d::G_CULL_BOTH),
+            "G_FOG" => Some(n64_gbi::consts::rsp_f3d::G_FOG),
+            "G_ZBUFFER" => Some(n64_gbi::consts::rsp_f3d::G_ZBUFFER),
+            "G_TEXTURE_GEN" => Some(n64_gbi::consts::rsp_f3d::G_TEXTURE_GEN),
+            "G_TEXTURE_GEN_LINEAR" => Some(n64_gbi::consts::rsp_f3d::G_TEXTURE_GEN_LINEAR),
+            _ => None,
+        };
+    }
     match name.trim() {
         "G_SHADE" => Some(n64_gbi::consts::G_SHADE),
         "G_SHADING_SMOOTH" => Some(n64_gbi::consts::G_SHADING_SMOOTH),
@@ -804,7 +834,12 @@ fn split_vtx_tokens(body: &str) -> Vec<&str> {
     out
 }
 
+#[cfg(test)]
 pub fn parse(source: &str) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
+    parse_for(source, Microcode::default())
+}
+
+pub fn parse_for(source: &str, microcode: Microcode) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
     let mut stmts = Vec::new();
     let mut diags = Vec::new();
     for (i, raw) in source.lines().enumerate() {
@@ -1179,14 +1214,9 @@ pub fn parse(source: &str) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
             }
         } else if line.starts_with("gsSPVertex") {
             match call_args(line, "gsSPVertex") {
-                Some(a) if a.len() == 3 => match (parse_u32_token(a[1]), parse_u32_token(a[2])) {
-                    (Some(nn), Some(v0)) => stmts.push((
-                        n,
-                        Stmt::SpVertex {
-                            n: nn as u8,
-                            v0: v0 as u8,
-                        },
-                    )),
+                Some(a) if a.len() == 3 => match (parse_target_u32(a[1], microcode), parse_target_u32(a[2], microcode)) {
+                    (Some(nn), Some(v0)) if microcode != Microcode::F3d || (1..=16).contains(&nn) && v0.checked_add(nn).is_some_and(|end| end <= 16) => stmts.push((n, Stmt::SpVertex { n: nn as u8, v0: v0 as u8 })),
+                    (Some(nn), Some(v0)) => diags.push(Diag { line: n, msg: format!("gsSPVertex: F3D requires 1 <= n <= 16 and v0 + n <= 16 (got n={nn}, v0={v0})") }),
                     _ => diags.push(Diag {
                         line: n,
                         msg: "gsSPVertex(pool, n, v0): n and v0 must be numbers".into(),
@@ -1201,11 +1231,11 @@ pub fn parse(source: &str) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
             match call_args(line, "gsSP1Triangle") {
                 Some(a) if a.len() == 4 => {
                     match (
-                        parse_u32_token(a[0]),
-                        parse_u32_token(a[1]),
-                        parse_u32_token(a[2]),
+                        parse_target_u32(a[0], microcode),
+                        parse_target_u32(a[1], microcode),
+                        parse_target_u32(a[2], microcode),
                     ) {
-                        (Some(v0), Some(v1), Some(v2)) => stmts.push((
+                        (Some(v0), Some(v1), Some(v2)) if microcode != Microcode::F3d || [v0, v1, v2].into_iter().all(|v| v < 16) => stmts.push((
                             n,
                             Stmt::Sp1Triangle {
                                 v0: v0 as u8,
@@ -1213,6 +1243,7 @@ pub fn parse(source: &str) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
                                 v2: v2 as u8,
                             },
                         )),
+                        (Some(v0), Some(v1), Some(v2)) => diags.push(Diag { line: n, msg: format!("gsSP1Triangle: F3D vertex indices must be 0..15 (got {v0},{v1},{v2})") }),
                         _ => diags.push(Diag {
                             line: n,
                             msg: "gsSP1Triangle: v0,v1,v2 must be numbers".into(),
@@ -1267,7 +1298,7 @@ pub fn parse(source: &str) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
                     if piece.is_empty() {
                         continue;
                     }
-                    if let Some(f) = geom_flag(piece) {
+                    if let Some(f) = geom_flag(piece, microcode) {
                         bits |= f;
                     } else if let Some(v) = parse_u32_token(piece) {
                         bits |= v;
@@ -1289,7 +1320,7 @@ pub fn parse(source: &str) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
                     if piece.is_empty() {
                         continue;
                     }
-                    if let Some(f) = geom_flag(piece) {
+                    if let Some(f) = geom_flag(piece, microcode) {
                         bits |= f;
                     } else if let Some(v) = parse_u32_token(piece) {
                         bits |= v;
@@ -2094,6 +2125,7 @@ pub fn parse(source: &str) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
                         None
                     });
                     match num_dir {
+                        Some(n_dir) if microcode == Microcode::F3d && n_dir > 7 => diags.push(Diag { line: n, msg: format!("gsSPSetLights: F3D supports at most 7 directional lights (got {n_dir})") }),
                         Some(n_dir) => stmts.push((
                             n,
                             Stmt::SpSetLights {
@@ -2144,9 +2176,9 @@ pub fn parse(source: &str) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
         } else if line.starts_with("gsSP2Triangles") {
             match call_args(line, "gsSP2Triangles") {
                 Some(a) if a.len() == 8 => {
-                    let p = |i: usize| parse_u32_token(a[i]);
+                    let p = |i: usize| parse_target_u32(a[i], microcode);
                     match (p(0), p(1), p(2), p(4), p(5), p(6)) {
-                        (Some(v0), Some(v1), Some(v2), Some(v3), Some(v4), Some(v5)) => {
+                        (Some(v0), Some(v1), Some(v2), Some(v3), Some(v4), Some(v5)) if microcode != Microcode::F3d || [v0, v1, v2, v3, v4, v5].into_iter().all(|v| v < 16) => {
                             stmts.push((
                                 n,
                                 Stmt::Sp2Triangles {
@@ -2159,6 +2191,7 @@ pub fn parse(source: &str) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
                                 },
                             ))
                         }
+                        (Some(v0), Some(v1), Some(v2), Some(v3), Some(v4), Some(v5)) => diags.push(Diag { line: n, msg: format!("gsSP2Triangles: F3D vertex indices must be 0..15 (got {v0},{v1},{v2},{v3},{v4},{v5})") }),
                         _ => diags.push(Diag {
                             line: n,
                             msg: "gsSP2Triangles: vertex indices must be numbers".into(),

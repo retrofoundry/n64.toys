@@ -31,12 +31,15 @@ export class Renderer {
      * @param {string} source
      * @param {number} time
      * @param {any} textures
+     * @param {string} microcode
      * @returns {any}
      */
-    render(source, time, textures) {
+    render(source, time, textures, microcode) {
         const ptr0 = passStringToWasm0(source, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.renderer_render(this.__wbg_ptr, ptr0, len0, time, textures);
+        const ptr1 = passStringToWasm0(microcode, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.renderer_render(this.__wbg_ptr, ptr0, len0, time, textures, ptr1, len1);
         return ret;
     }
     shutdown() {
@@ -48,12 +51,15 @@ if (Symbol.dispose) Renderer.prototype[Symbol.dispose] = Renderer.prototype.free
 
 /**
  * @param {string} source
+ * @param {string} microcode
  * @returns {any}
  */
-export function analyze(source) {
+export function analyze(source, microcode) {
     const ptr0 = passStringToWasm0(source, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.analyze(ptr0, len0);
+    const ptr1 = passStringToWasm0(microcode, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.analyze(ptr0, len0, ptr1, len1);
     return ret;
 }
 
@@ -1100,7 +1106,7 @@ function __wbg_get_imports() {
             arg0.writeTexture(arg1, getArrayU8FromWasm0(arg2, arg3), arg4, arg5);
         }, arguments); },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 164, function: Function { arguments: [Externref], shim_idx: 165, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 163, function: Function { arguments: [Externref], shim_idx: 164, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h0935b00e02a5d6d9, wasm_bindgen__convert__closures_____invoke__hb79a1d8cb4268fc4);
             return ret;
         },

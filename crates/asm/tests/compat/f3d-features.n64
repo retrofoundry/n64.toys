@@ -1,0 +1,30 @@
+Mtx proj = scale(0.015625)
+Mtx model = identity()
+Vp { 640, 480, 511, 0, 640, 480, 511, 0 }
+Lights key = { dir(0, 0, 127) col(200, 180, 160); ambient(32, 32, 32) }
+LookAt axes = lookat_reflect(0, 0, 100, 0, 0, 0, 0, 1, 0)
+VtxSet a = { VtxN { -30, -20, 0, 0, 0, 0, 0, 0, 127, 255 } VtxN { 30, -20, 0, 0, 0, 0, 0, 0, 127, 255 } VtxN { 0, 30, 0, 0, 0, 0, 0, 0, 127, 255 } }
+VtxSet b = { VtxN { -20, -30, 0, 0, 0, 0, 0, 0, 127, 255 } VtxN { 20, -30, 0, 0, 0, 0, 0, 0, 127, 255 } VtxN { 0, 40, 0, 0, 0, 0, 0, 0, 127, 255 } }
+morph verts = lerp(a, b, (1 - cos(time)) / 2)
+Gfx main[] = {
+  gsDPSetColorImage(G_IM_FMT_RGBA, G_IM_SIZ_16b, 320, 0x00100000)
+  gsDPSetScissor(0, 0, 0, 1280, 960)
+  gsSPMatrix(proj, G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH)
+  gsSPMatrix(model, G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_PUSH)
+  gsSPMatrix(model, G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH)
+  gsSPViewport(vp)
+  gsSPSetGeometryMode(G_SHADE | G_SHADING_SMOOTH | G_LIGHTING | G_TEXTURE_GEN)
+  gsSPSetLights(key)
+  gsSPLookAt(axes)
+  gsDPSetOtherMode_H(G_CYC_1CYCLE)
+  gsDPSetRenderMode(G_RM_OPA_SURF, G_RM_OPA_SURF2)
+  gsDPSetCombineLERP(0, 0, 0, SHADE, 0, 0, 0, SHADE, 0, 0, 0, SHADE, 0, 0, 0, SHADE)
+  gsSPDisplayList(triangle)
+  gsSPPopMatrix(2)
+  gsSPEndDisplayList()
+}
+Gfx triangle[] = {
+  gsSPVertex(verts, 3, 0)
+  gsSP1Triangle(0, 1, 2, 0)
+  gsSPEndDisplayList()
+}

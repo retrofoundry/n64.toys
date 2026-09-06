@@ -111,10 +111,21 @@ describe("parseManifest", () => {
     );
   });
 
-  it("rejects a non-string microcode", () => {
-    expectValidation(
-      parseManifest({ ...validManifest(), microcode: null }),
-    );
+  it.each(["F3DEX2", "F3D"])("accepts microcode %s", (microcode) => {
+    const manifest = { ...validManifest(), microcode };
+    expect(parseManifest(manifest)).toEqual({ ok: true, value: manifest });
+  });
+
+  it.each(["unknown", "f3d", "f3dex2", "", " F3D", "F3D ", null, 3, false])(
+    "rejects microcode %j",
+    (microcode) => {
+      expectValidation(parseManifest({ ...validManifest(), microcode }));
+    },
+  );
+
+  it("rejects an absent microcode", () => {
+    const { microcode: _, ...manifest } = validManifest();
+    expectValidation(parseManifest(manifest));
   });
 
   it("rejects a non-array textures field", () => {
