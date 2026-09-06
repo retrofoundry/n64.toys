@@ -2036,3 +2036,40 @@ Gfx main[] = { gsSPVertex(verts, 1, 0) gsSP1Triangle(0,0,0,0) gsSPEndDisplayList
         assert_eq!(w0c >> 24, 0xF2, "SetTileSize opcode");
     }
 }
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn fill_rectangle_has_one_word() {
+        assert_eq!(
+            stmt_word_count(&Stmt::DpFillRectangle {
+                ulx: 0,
+                uly: 0,
+                lrx: 1280,
+                lry: 960
+            }),
+            1
+        );
+    }
+
+    #[test]
+    fn texture_rectangle_has_three_words() {
+        assert_eq!(
+            stmt_word_count(&Stmt::SpTextureRectangle {
+                ulx: 0,
+                uly: 0,
+                lrx: 1280,
+                lry: 960,
+                tile: 0,
+                uls: 44,
+                ult: 52,
+                dsdx: 1024,
+                dtdy: 512,
+                flip: false
+            }),
+            3
+        );
+    }
+}

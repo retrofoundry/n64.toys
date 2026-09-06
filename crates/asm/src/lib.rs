@@ -32,3 +32,6 @@ mod tests {
         assert_eq!(byte, 0xF0);
     }
 }
+
+#[cfg(test)]
+mod compiler_tests;
