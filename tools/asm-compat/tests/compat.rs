@@ -84,9 +84,15 @@ fn diagnostics(diags: &[Diag]) -> Value {
         .collect::<Vec<_>>())
 }
 
-fn record(source: &str, time_bits: u32, profile: &str, textures: &[FrozenTexture]) -> Value {
+fn record(
+    source: &str,
+    time_bits: u32,
+    profile: &str,
+    textures: &[FrozenTexture],
+    microcode: Microcode,
+) -> Value {
     let time = f32::from_bits(time_bits);
-    let result = if profile == "legacy-white32" {
+    let result = if profile == "legacy-white32" && microcode == Microcode::F3dex2 {
         assemble_at(source, time, Some((&vec![255; 32 * 32 * 4], 32, 32)))
     } else {
         let pixels: Vec<Vec<u8>> = textures
@@ -96,7 +102,7 @@ fn record(source: &str, time_bits: u32, profile: &str, textures: &[FrozenTexture
                 let mut rgba8 = Vec::with_capacity((texture.width * texture.height * 4) as usize);
                 for y in 0..texture.height {
                     for x in 0..texture.width {
-                        let texel = if profile == "named-white" {
+                        let texel = if profile != "named-patterned" {
                             [255; 4]
                         } else {
                             PALETTE[(x as usize + 3 * y as usize + 5 * ordinal) % 8]
@@ -117,7 +123,7 @@ fn record(source: &str, time_bits: u32, profile: &str, textures: &[FrozenTexture
                 height: texture.height,
             })
             .collect();
-        assemble_at_with_textures(source, time, &inputs, Microcode::F3dex2)
+        assemble_at_with_textures(source, time, &inputs, microcode)
     };
     match result {
         Ok(image) => {
@@ -127,7 +133,7 @@ fn record(source: &str, time_bits: u32, profile: &str, textures: &[FrozenTexture
                 source_map.update(addr.to_be_bytes());
                 source_map.update((*line as u64).to_be_bytes());
             }
-            let analysis = analyze(source, Microcode::F3dex2);
+            let analysis = analyze(source, microcode);
             json!({
                 "ok": true,
                 "rdram_sha256": format!("{:x}", Sha256::digest(&image.rdram)),
@@ -156,17 +162,20 @@ fn record(source: &str, time_bits: u32, profile: &str, textures: &[FrozenTexture
     }
 }
 
-fn build_corpus(expected: Option<&Corpus>) -> Corpus {
+fn build_corpus(expected: Option<&Corpus>, microcode: Microcode) -> Corpus {
     let mut corpus = Corpus::new();
-    for scene in SCENES {
+    let fixture = (microcode == Microcode::F3d).then_some("f3d-features");
+    for scene in SCENES.into_iter().chain(fixture) {
         let path = if scene == "starter" {
             root().join("web-app/src/lib/docs/starter.n64")
+        } else if scene == "f3d-features" {
+            root().join("crates/asm/tests/compat/f3d-features.n64")
         } else {
             root().join(format!("crates/asm/tests/scenes/{scene}.n64"))
         };
         let source = fs::read_to_string(&path).unwrap_or_else(|error| panic!("{path:?}: {error}"));
         let declared: Vec<_> = if expected.is_none() {
-            analyze(&source, Microcode::F3dex2)
+            analyze(&source, microcode)
                 .textures
                 .into_iter()
                 .map(|texture| FrozenTexture {
@@ -180,7 +189,12 @@ fn build_corpus(expected: Option<&Corpus>) -> Corpus {
         };
         for time_bits in TIME_BITS {
             for profile in PROFILES {
-                let key = format!("{scene}|{time_bits:08x}|{profile}");
+                let prefix = if microcode == Microcode::F3d {
+                    "F3D|"
+                } else {
+                    ""
+                };
+                let key = format!("{prefix}{scene}|{time_bits:08x}|{profile}");
                 let textures = match expected {
                     Some(expected) => {
                         &expected
@@ -196,7 +210,7 @@ fn build_corpus(expected: Option<&Corpus>) -> Corpus {
                     key,
                     Case {
                         input_textures: textures.clone(),
-                        output: record(&source, time_bits, profile, textures),
+                        output: record(&source, time_bits, profile, textures, microcode),
                     },
                 );
             }
@@ -261,20 +275,21 @@ fn assert_primary_successes(corpus: &Corpus) {
         errors.join("\n")
     );
     println!(
-        "corpus: {} cases, {} ok, 0 errors",
+        "F3DEX2 corpus: {} cases, {} ok, 0 errors",
         corpus.len(),
         corpus.len()
     );
 }
 
-#[test]
-fn compatibility_corpus() {
-    let expected: Corpus = serde_json::from_str(
+fn read_expected() -> Corpus {
+    serde_json::from_str(
         &fs::read_to_string(root().join("crates/asm/tests/compat/expected.json")).unwrap(),
     )
-    .unwrap();
-    let actual = build_corpus(Some(&expected));
-    for (key, case) in &actual {
+    .unwrap()
+}
+
+fn assert_matches(expected: &Corpus, actual: &Corpus, microcode: Microcode) {
+    for (key, case) in actual {
         if let Some(difference) = first_difference(
             &serde_json::to_value(&expected[key]).unwrap(),
             &serde_json::to_value(case).unwrap(),
@@ -283,19 +298,69 @@ fn compatibility_corpus() {
             panic!("case {key}, field {difference}");
         }
     }
-    for key in expected.keys() {
+    for key in expected
+        .keys()
+        .filter(|key| key.starts_with("F3D|") == (microcode == Microcode::F3d))
+    {
         assert!(
             actual.contains_key(key),
             "case {key}, field case: unexpected expected case"
         );
     }
+}
+
+fn assert_f3d_outcomes(corpus: &Corpus) {
+    assert_eq!(corpus.len(), 735);
+    let mut successes = 0;
+    let mut errors = 0;
+    for (key, case) in corpus {
+        let scene = key.split('|').nth(1).unwrap();
+        let incompatible = matches!(
+            scene,
+            "chrome-icosphere" | "high-poly" | "lights" | "morphcube"
+        );
+        assert_eq!(
+            case.output["ok"], !incompatible,
+            "case {key}: {}",
+            case.output
+        );
+        if incompatible {
+            assert!(!case.output["diagnostics"].as_array().unwrap().is_empty());
+            errors += 1;
+        } else {
+            successes += 1;
+        }
+    }
+    assert_eq!((successes, errors), (651, 84));
+    println!("F3D corpus: 735 cases, {successes} ok, {errors} errors");
+}
+
+#[test]
+fn f3dex2_compatibility_corpus() {
+    let expected = read_expected();
+    let actual = build_corpus(Some(&expected), Microcode::F3dex2);
+    assert_matches(&expected, &actual, Microcode::F3dex2);
     assert_primary_successes(&actual);
+}
+
+#[test]
+fn f3d_compatibility_corpus() {
+    let expected = read_expected();
+    let actual = build_corpus(Some(&expected), Microcode::F3d);
+    assert_matches(&expected, &actual, Microcode::F3d);
+    assert_f3d_outcomes(&actual);
 }
 
 #[test]
 #[ignore]
 fn write_expected_candidate() {
-    let corpus = build_corpus(None);
+    let expected = read_expected();
+    let mut corpus = build_corpus(None, Microcode::F3dex2);
+    assert_matches(&expected, &corpus, Microcode::F3dex2);
+    assert_primary_successes(&corpus);
+    let f3d = build_corpus(None, Microcode::F3d);
+    assert_f3d_outcomes(&f3d);
+    corpus.extend(f3d);
     let directory = root().join("crates/asm/tests/compat");
     fs::create_dir_all(&directory).unwrap();
     fs::write(
@@ -303,5 +368,4 @@ fn write_expected_candidate() {
         format!("{}\n", serde_json::to_string_pretty(&corpus).unwrap()),
     )
     .unwrap();
-    assert_primary_successes(&corpus);
 }
