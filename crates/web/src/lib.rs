@@ -352,6 +352,7 @@ mod tests {
             errors,
             dropped_runs: 0,
             renderable,
+            termination: fast3d::inspect::WalkTermination::End,
         }
     }
 
