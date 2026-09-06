@@ -10,7 +10,7 @@
 </script>
 
 <div class="border-t border-edge">
-  <div class="flex items-center gap-3 px-3.5 py-2.5">
+  <div class="flex flex-wrap items-center gap-3 px-3.5 py-2.5">
     <span class="ui-status text-ink-dim tracking-wide">{pg.settings.microcode}</span>
     <span class="text-xs {pg.errored ? 'text-n64-red' : 'text-n64-green'}">{pg.status}</span>
     <span class="ml-auto text-xs text-ink-dim tabular-nums">640×480</span>
@@ -21,6 +21,9 @@
       aria-label="Fullscreen"
       class="ui-button flex min-h-8 items-center justify-center"
     ><Maximize size={15} strokeWidth={2} /></button>
+    <button type="button" class="ui-button flex min-h-8 items-center justify-center"
+      aria-label="Display list" aria-pressed={pg.inspection.open}
+      onclick={() => pg.toggleInspection()}>Display list</button>
   </div>
 
   {#if pg.isAnimated}

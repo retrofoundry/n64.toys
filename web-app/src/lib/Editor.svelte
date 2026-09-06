@@ -8,6 +8,7 @@
   import { n64Language, n64Highlighting } from "./editor/n64-lang";
   import { n64Theme } from "./editor/cm-theme";
   import { n64Lint, setDiagsEffect } from "./editor/lint";
+  import { n64Inspection, inspectLine } from "./editor/inspection";
   import Panel from "./ui/Panel.svelte";
   import HelpDrawer from "./HelpDrawer.svelte";
   import type { Diagnostic } from "./playground.svelte";
@@ -17,15 +18,22 @@
     diagnostics,
     onrun,
     oninput,
+    inspectionLine = null,
+    inspectionNavigation = 0,
+    oncursorline = () => {},
   }: {
     value: string;
     diagnostics: Diagnostic[];
     onrun: () => void;
     oninput?: () => void;
+    inspectionLine?: number | null;
+    inspectionNavigation?: number;
+    oncursorline?: (line: number) => void;
   } = $props();
 
   let host: HTMLDivElement;
-  let view: EditorView | undefined;
+  let view = $state.raw<EditorView | undefined>();
+  let lastNavigation = 0;
   let helpOpen = $state(false);
   let helpTrigger = $state<HTMLButtonElement | undefined>();
 
@@ -43,6 +51,7 @@
           n64Highlighting,
           n64Theme,
           n64Lint(),
+          n64Inspection(line => oncursorline(line)),
           keymap.of([
             { key: "Mod-Enter", preventDefault: true, run: () => { onrun(); return true; } },
             indentWithTab,
@@ -59,6 +68,13 @@
       }),
     });
     return () => view?.destroy();
+  });
+
+  $effect(() => {
+    const line = inspectionLine;
+    const navigation = inspectionNavigation;
+    if (view) inspectLine(view, line, navigation !== lastNavigation);
+    lastNavigation = navigation;
   });
 
   // Push external value changes into the editor.

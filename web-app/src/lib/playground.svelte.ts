@@ -1,4 +1,6 @@
-import init, { Renderer, analyze } from "../wasm/n64_toys.js";
+import init, { Renderer, analyze, inspect } from "../wasm/n64_toys.js";
+import { Inspection } from "./inspection.svelte";
+import type { Trace, TraceDiagnostic } from "./inspection";
 import STARTER_SOURCE from "./docs/starter.n64?raw";
 import type { Toy, ToyTexture } from "../toys/types";
 import { parseBin } from "./texture-bin";
@@ -178,6 +180,8 @@ async function prepareBundledAsset(
 }
 
 export class Playground {
+  readonly inspection = new Inspection();
+  #inspectionInputs: { source: string; time: number; textures: readonly RenderTextureSnapshot[]; microcode: string } | null = null;
   #source = $state("");
   /** True once init() has loaded the wasm module — analyze() is callable only after that. */
   #analysisReady = false;
@@ -188,6 +192,7 @@ export class Playground {
   }
   set source(value: string) {
     this.#source = value;
+    this.inspection.invalidate();
     if (this.#analysisReady) this.reconcileTextureDeclarations();
   }
 
@@ -327,6 +332,7 @@ export class Playground {
   }
 
   #setTextureSlots(slots: TextureSlot[]): void {
+    this.inspection.invalidate();
     this.textureSlots = slots;
     this.#renderTextures = snapshotTextures(slots);
   }
@@ -372,6 +378,7 @@ export class Playground {
   }
 
   reconcileTextureDeclarations(): void {
+    this.inspection.invalidate();
     const parsed = analyze(
       this.source,
       this.settings.microcode,
@@ -534,6 +541,66 @@ export class Playground {
   /** One-shot render at the current time (used by RUN button, the edit debounce, init). Never auto-plays. */
   run(): void {
     this.renderFrame(this.time);
+    this.#captureInspection();
+  }
+
+  #captureInspection(): void {
+    if (!this.inspection.open || this.playing || !this.#analysisReady) return;
+    const inputs = { source: this.source, time: Math.fround(this.time), textures: this.#renderTextures, microcode: this.settings.microcode };
+    this.#inspectionInputs = inputs;
+    const trace = this.textureLimitError
+      ? { version: 1, time: inputs.time, microcode: inputs.microcode, entry: null, termination: "stopped", dispatched: 0, rows: [], states: [], sourceLines: [], diags: [], error: this.textureLimitError } as Trace
+      : inspect(inputs.source, inputs.time, inputs.textures, inputs.microcode) as Trace;
+    this.inspection.capture(trace);
+    if (this.inspection.selectedSeq !== null) this.selectCommand(this.inspection.selectedSeq, false);
+  }
+
+  toggleInspection(): void {
+    if (this.inspection.open) {
+      this.inspection.close();
+      this.#inspectionInputs = null;
+      this.renderFrame(this.time);
+    } else {
+      this.pause(false);
+      this.inspection.open = true;
+      this.run();
+    }
+  }
+
+  selectCommand(seq: number, navigate = true): void {
+    if (!this.inspection.select(seq, navigate)) return;
+    const inputs = this.#inspectionInputs;
+    if (!inputs || !this.#renderer) return;
+    const result = this.#renderer.render_prefix(
+      inputs.source, inputs.time, inputs.textures, inputs.microcode, seq + 1,
+    ) as RenderResult | null;
+    this.#applyRenderResult(result);
+  }
+
+  stepCommand(delta: number): void {
+    const seq = this.inspection.step(delta);
+    if (seq !== null) this.selectCommand(seq);
+  }
+
+  nextDrawCommand(): void {
+    const seq = this.inspection.nextDraw();
+    if (seq !== null) this.selectCommand(seq);
+  }
+
+  inspectSourceLine(line: number): void {
+    const seq = this.inspection.selectLine(line);
+    if (seq !== null) this.selectCommand(seq, false);
+  }
+
+  inspectDiagnostic(diagnostic: Diagnostic): void {
+    if (!this.inspection.open) this.toggleInspection();
+    else if (this.playing) this.pause();
+    else if (this.inspection.stale) this.run();
+    const trace = this.inspection.trace;
+    if (!trace) return;
+    const match: TraceDiagnostic | undefined = trace.diags.find(d => d.kind === diagnostic.kind && d.line === diagnostic.line && d.msg === diagnostic.msg);
+    const row = trace.rows.find(row => match?.seq != null ? row.seq === match.seq : match?.pc != null ? row.pc === match.pc : diagnostic.kind === "src" && row.line === diagnostic.line);
+    if (row) this.selectCommand(row.seq);
   }
 
   /** Synchronously render the exact current source, time, and immutable texture snapshot. */
@@ -597,37 +664,43 @@ export class Playground {
   play(): void {
     if (this.playing || !this.isAnimated) return;
     this.playing = true;
+    this.inspection.invalidate();
     this.#baseTime = this.time;
     this.#startMs = performance.now();
     this.#rafId = requestAnimationFrame(this.#loop);
   }
 
-  pause(): void {
+  pause(refreshInspection = true): void {
+    const wasPlaying = this.playing;
     this.playing = false;
     if (this.#rafId != null) cancelAnimationFrame(this.#rafId);
     this.#rafId = undefined;
     this.fps = 0;
     this.#fpsEma = 0;
     this.#lastFrameMs = 0;
+    if (wasPlaying && refreshInspection && this.inspection.open) this.run();
   }
 
   reset(): void {
-    this.pause();
+    this.pause(false);
     this.time = 0;
     this.#baseTime = 0;
-    this.renderFrame(0);
+    this.run();
   }
 
   /** Seek to `t` seconds while paused (deterministic single-frame render). */
   seek(t: number): void {
-    this.pause();
+    this.pause(false);
     this.time = t;
-    this.renderFrame(t);
+    this.run();
   }
 
   /** Cancel the loop + release the play head (call on editor exit). */
   teardown(): void {
-    this.pause();
+    this.inspection.close();
+    this.#inspectionInputs = null;
+    clearTimeout(this.#debounce);
+    this.pause(false);
     this.#revokeAssets(this.textureSlots);
     this.#setTextureSlots([]);
     this.#renderer?.shutdown();
@@ -641,7 +714,9 @@ export class Playground {
   /** Reset the editor to a fresh draft seeded with the starter toy. */
   async newDraft({ signal }: TransitionOptions = {}): Promise<void> {
     signal?.throwIfAborted();
-    this.pause();
+    this.inspection.close();
+    this.#inspectionInputs = null;
+    this.pause(false);
     clearTimeout(this.#debounce);
     this.#debounce = undefined;
     this.#revokeAssets(this.textureSlots);
@@ -738,7 +813,10 @@ export class Playground {
       throw error;
     }
 
-    this.pause(); // cancel any in-flight rAF loop from the previous toy
+    this.inspection.close();
+    this.#inspectionInputs = null;
+    clearTimeout(this.#debounce);
+    this.pause(false);
     this.#revokeAssets(this.textureSlots);
     this.#source = toy.source;
     this.settings.microcode = toy.microcode;

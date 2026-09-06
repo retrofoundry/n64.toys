@@ -1,0 +1,35 @@
+import { Annotation, StateEffect, StateField, type Extension } from "@codemirror/state";
+import { Decoration, EditorView, type DecorationSet, type ViewUpdate } from "@codemirror/view";
+
+export const inspectionNavigation = Annotation.define<boolean>();
+export const setInspectionLine = StateEffect.define<number | null>();
+export const inspectionField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(value, transaction) {
+    if (transaction.docChanged) return Decoration.none;
+    for (const effect of transaction.effects) {
+      if (effect.is(setInspectionLine)) {
+        const line = effect.value;
+        if (line === null || line < 1 || line > transaction.state.doc.lines) return Decoration.none;
+        return Decoration.set([Decoration.line({ class: "cm-inspection-line" }).range(transaction.state.doc.line(line).from)]);
+      }
+    }
+    return value;
+  },
+  provide: field => EditorView.decorations.from(field),
+});
+export function inspectLine(view: EditorView, line: number | null, navigate = false): void {
+  const valid = line !== null && line >= 1 && line <= view.state.doc.lines;
+  const effects = [setInspectionLine.of(valid ? line : null)];
+  if (valid && navigate) {
+    const anchor = view.state.doc.line(line).from;
+    view.dispatch({ effects: [...effects, EditorView.scrollIntoView(anchor, { y: "center" })], selection: { anchor }, annotations: inspectionNavigation.of(true) });
+  } else view.dispatch({ effects });
+}
+export function cursorLineChanged(update: ViewUpdate, callback: (line: number) => void): void {
+  if (update.docChanged || !update.selectionSet || update.transactions.some(tr => tr.annotation(inspectionNavigation))) return;
+  callback(update.state.doc.lineAt(update.state.selection.main.head).number);
+}
+export function n64Inspection(onCursorLine: (line: number) => void): Extension {
+  return [inspectionField, EditorView.updateListener.of(update => cursorLineChanged(update, onCursorLine))];
+}

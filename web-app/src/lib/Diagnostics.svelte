@@ -2,7 +2,7 @@
   import type { Diagnostic } from "./playground.svelte";
   import Panel from "./ui/Panel.svelte";
 
-  let { diagnostics }: { diagnostics: Diagnostic[] } = $props();
+  let { diagnostics, onselect }: { diagnostics: Diagnostic[]; onselect?: (diagnostic: Diagnostic) => void } = $props();
 </script>
 
 {#snippet actions()}
@@ -23,7 +23,9 @@
           {:else if d.kind === "addr"}
             <span class="text-n64-yellow shrink-0">addr 0x{d.line.toString(16)}</span>
           {/if}
-          <span class="text-ink">{d.msg}</span>
+          {#if onselect}
+            <button type="button" class="text-ink text-left underline" onclick={() => onselect(d)}>{d.msg}</button>
+          {:else}<span class="text-ink">{d.msg}</span>{/if}
         </div>
       {/each}
     {/if}

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/svelte";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/svelte";
+import { describe, expect, it, vi } from "vitest";
 import Diagnostics from "./Diagnostics.svelte";
 
 describe("Diagnostics", () => {
@@ -53,4 +53,12 @@ it("colors warnings yellow and errors red even at the same location", () => {
   const messages = screen.getAllByText("diagnostic");
   expect(messages[0].parentElement).toHaveClass("border-l-n64-yellow");
   expect(messages[1].parentElement).toHaveClass("border-l-n64-red");
+});
+
+it("offers diagnostic navigation with the original diagnostic", async () => {
+  const diagnostic = {line:27,kind:"src" as const,severity:"warn" as const,msg:"render mode missing"};
+  const onselect = vi.fn();
+  render(Diagnostics,{diagnostics:[diagnostic],onselect});
+  await fireEvent.click(screen.getByRole("button",{name:"render mode missing"}));
+  expect(onselect).toHaveBeenCalledExactlyOnceWith(diagnostic);
 });
