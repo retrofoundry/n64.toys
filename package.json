@@ -6,6 +6,7 @@
   "scripts": {
     "check": "pnpm --recursive check",
     "test": "pnpm --recursive test",
-    "build": "pnpm --recursive build"
+    "build": "pnpm --recursive build",
+    "smoke": "node scripts/smoke-compose.mjs"
   }
 }

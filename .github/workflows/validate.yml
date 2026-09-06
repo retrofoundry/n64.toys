@@ -1,0 +1,58 @@
+name: validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: cachix/cachix-action@v16
+        with:
+          name: devenv
+          skipPush: true
+
+      - name: Install devenv
+        run: nix profile add nixpkgs#devenv
+
+      - name: Check Docker
+        run: |
+          devenv shell -- docker info
+          devenv shell -- docker compose version
+
+      - name: Validate
+        run: |
+          devenv shell -- pnpm install --frozen-lockfile
+          devenv shell -- cargo test
+          devenv shell -- cargo clippy --all-targets -- -D warnings
+          devenv shell -- cargo fmt --check
+          devenv shell -- cargo build -p web --target wasm32-unknown-unknown
+          devenv shell -- build-wasm
+          devenv shell -- pnpm check
+          devenv shell -- pnpm test
+          devenv shell -- pnpm build
+          devenv shell -- docker compose --env-file .env.example config --quiet
+
+      - name: Compose smoke
+        id: smoke
+        run: devenv shell -- node scripts/smoke-compose.mjs

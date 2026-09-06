@@ -51,6 +51,7 @@ devenv shell -- pnpm test                                       # frontend and b
 devenv shell -- build-wasm                                      # release wasm + bindings
 devenv shell -- pnpm build                                      # production packages build
 devenv shell -- docker compose --env-file .env.example config --quiet
+devenv shell -- pnpm smoke                                      # compose runtime smoke (needs Docker)
 ```
 
 - `cargo clippy --all-targets` must be **warning-free** (treat clippy warnings as failures). Prefer
@@ -61,7 +62,7 @@ devenv shell -- docker compose --env-file .env.example config --quiet
   `#[cfg(target_arch = "wasm32")]`-gated, so native `cargo test` and rust-analyzer only cover the pure
   helpers — always verify the render path with the wasm build above.
 - Compose runtime verification is a separate required smoke test because it needs a running Docker
-  daemon: build and start `db`, `migrate`, and `api`; verify the schema, health endpoint, signed-out
+  daemon: build and start `n64-db`, `migrate`, and `api`; verify the schema, health endpoint, signed-out
   session, and hostile-origin rejection; then stop the stack without deleting its named volume.
 
 ## Layout
