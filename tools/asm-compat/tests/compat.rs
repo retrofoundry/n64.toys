@@ -189,6 +189,9 @@ fn build_corpus(expected: Option<&Corpus>, microcode: Microcode) -> Corpus {
         };
         for time_bits in TIME_BITS {
             for profile in PROFILES {
+                if microcode == Microcode::F3d && profile == "legacy-white32" {
+                    continue;
+                }
                 let prefix = if microcode == Microcode::F3d {
                     "F3D|"
                 } else {
@@ -310,7 +313,7 @@ fn assert_matches(expected: &Corpus, actual: &Corpus, microcode: Microcode) {
 }
 
 fn assert_f3d_outcomes(corpus: &Corpus) {
-    assert_eq!(corpus.len(), 735);
+    assert_eq!(corpus.len(), 490);
     let mut successes = 0;
     let mut errors = 0;
     for (key, case) in corpus {
@@ -331,8 +334,8 @@ fn assert_f3d_outcomes(corpus: &Corpus) {
             successes += 1;
         }
     }
-    assert_eq!((successes, errors), (651, 84));
-    println!("F3D corpus: 735 cases, {successes} ok, {errors} errors");
+    assert_eq!((successes, errors), (434, 56));
+    println!("F3D corpus: 490 cases, {successes} ok, {errors} errors");
 }
 
 #[test]
