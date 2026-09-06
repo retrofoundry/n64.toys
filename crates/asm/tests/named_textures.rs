@@ -171,7 +171,7 @@ fn named_ci_textures_get_independent_palettes() {
     let commands = &assembled.rdram[assembled.entry_addr as usize..];
     let red_palette = u32::from_be_bytes(commands[4..8].try_into().unwrap()) as usize;
     let green_palette =
-        u32::from_be_bytes(commands[11 * 8 + 4..12 * 8].try_into().unwrap()) as usize;
+        u32::from_be_bytes(commands[12 * 8 + 4..13 * 8].try_into().unwrap()) as usize;
     assert_ne!(red_palette, green_palette);
     assert_eq!(
         &assembled.rdram[red_palette..red_palette + 2],
