@@ -47,6 +47,7 @@ PostgreSQL uses a named Docker volume, so its data persists across normal `backe
 
 ## Layout
 
+- `crates/asm` — the GBI text assembler and language tests (`n64-toys-asm`).
 - `crates/web` — the `#[wasm_bindgen]` binding around fast3d's `Renderer`.
 - `web-app/` — the Svelte playground (gallery, editor, canvas).
 - `server/` — the Hono + Drizzle + Better Auth API that saves and publishes toys, on PostgreSQL.

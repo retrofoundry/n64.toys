@@ -9,11 +9,10 @@ them with an accurate **wgpu/WebGPU** engine. Authored source stays portable to 
   premature generality — build for the current milestone, not an imagined one. Keep components
   small, focused, and independently testable; when a file or module grows to do too many things,
   that's a signal to split it. Add complexity only when a concrete need forces it.
-- **The N64 engine is external — this repo is the playground.** All display-list assembly, microcode
-  HLE interpretation, and wgpu rendering live in [`fast3d-rs`](https://github.com/retrofoundry/fast3d-rs)
-  (`crates/web/Cargo.toml` depends on it via git). This repo owns only the authoring UI (`web-app`),
-  toy persistence (`server`), and a thin wasm-bindgen bridge (`crates/web`) over `fast3d::asm` + the
-  renderer. Changes to assembling, HLE, or rendering belong upstream in fast3d-rs, not here.
+- **This repo owns the language.** Display-list assembly lives in `crates/asm`. Microcode HLE
+  interpretation and wgpu rendering stay in [`fast3d-rs`](https://github.com/retrofoundry/fast3d-rs).
+  This repo also owns the authoring UI (`web-app`), toy persistence (`server`), and the thin
+  wasm-bindgen bridge (`crates/web`) between the assembler and renderer.
 
 ## Tooling
 
@@ -43,6 +42,8 @@ devenv):
 
 ```bash
 devenv shell -- cargo test                                      # all tests green
+devenv shell -- cargo test -p n64-toys-asm                       # compiler tests
+devenv shell -- cargo test -p asm-compat                         # compatibility corpus
 devenv shell -- cargo clippy --all-targets                      # ZERO warnings
 devenv shell -- cargo fmt --check                               # formatted
 devenv shell -- cargo build -p web --target wasm32-unknown-unknown   # wasm crate builds
@@ -67,7 +68,9 @@ devenv shell -- pnpm smoke                                      # compose runtim
 
 ## Layout
 
-- `crates/web/` — the sole Rust crate: a wasm-bindgen bridge over `fast3d-rs` (assemble gbi macros →
+- `crates/asm/` — the GBI text assembler and language tests (`n64-toys-asm`).
+- `tools/asm-compat/` — compatibility corpus tests and the expected-output candidate writer.
+- `crates/web/` — a wasm-bindgen bridge over `n64-toys-asm` and `fast3d-rs` (assemble gbi macros →
   HLE → wgpu render).
 - `web-app/` — Svelte 5 SPA (the authoring UI).
 - `server/` — Hono + Drizzle + Better Auth API for saving/publishing toys, on Postgres.
