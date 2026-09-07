@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { StepForward } from "@lucide/svelte";
   import type { Playground } from "./playground.svelte";
   import { emittedCount } from "./inspection";
   import Viewport from "./Viewport.svelte";
@@ -37,7 +36,7 @@
   </div>
   {#if inspection.open}
     <div class="inspection-current">
-      <button type="button" class="ui-button inspection-toggle" aria-pressed={inspection.open} onclick={() => pg.toggleInspection()}><StepForward size={15} strokeWidth={2} /> Step through frame</button>
+      <p class="inspection-frame">Stepping the frame at t = {pg.time.toFixed(2)}s · {pg.settings.microcode} · exit to change the time</p>
       <p class="inspection-command" role="status">
         {#if inspection.stale}Stale trace · run to refresh.
         {:else if selected}{inspection.presented === true ? "Rendered through command" : "Selected command"} {selected.seq} · {selected.decoded.mnemonic} · {selected.line === null ? "unmapped" : `line ${selected.line}`}

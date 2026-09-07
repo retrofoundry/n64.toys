@@ -62,7 +62,8 @@ it("renders to the last command without closing the dock", async () => {
   expect(pg.inspection.page).toBe(2);
   expect(pg.inspection.open).toBe(true);
   expect(screen.getByText("Selected command 204 · G_MTX · line 223")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Step through frame" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("region", { name: "Frame stepping" })).not.toHaveAttribute("hidden");
+  expect(screen.getByRole("button", { name: "Exit" })).toBeInTheDocument();
 });
 
 it("names the last captured command for capped traces and labels unmapped commands", async () => {
