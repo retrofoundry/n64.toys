@@ -32,13 +32,9 @@ export class Inspection {
     }
     return true;
   }
-  selectLine(line: number): number | null {
-    if (!this.open || this.stale) return null;
+  browseLine(line: number): void {
+    if (!this.open || this.stale) return;
     this.cursorLine = line;
-    const rows = this.trace?.rows.filter(row => row.line === line) ?? [];
-    if (!rows.some(row => row.seq === this.selectedSeq)) this.selectedSeq = rows[0]?.seq ?? null;
-    if (this.selectedSeq !== null) this.select(this.selectedSeq, false);
-    return this.selectedSeq;
   }
   step(delta: number): number | null {
     const rows = this.trace?.rows ?? [];

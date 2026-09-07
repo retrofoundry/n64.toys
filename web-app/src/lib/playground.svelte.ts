@@ -594,8 +594,7 @@ export class Playground {
   }
 
   inspectSourceLine(line: number): void {
-    const seq = this.inspection.selectLine(line);
-    if (seq !== null) this.selectCommand(seq, false);
+    this.inspection.browseLine(line);
   }
 
   inspectDiagnostic(diagnostic: Diagnostic): void {

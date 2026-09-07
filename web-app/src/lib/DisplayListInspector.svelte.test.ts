@@ -50,6 +50,8 @@ it("pages commands, selects with arrows, links repeated rows and expands raw con
   expect(screen.getByText("Page 1 / 3")).toBeInTheDocument();
   pg.inspectSourceLine(20);
   await vi.waitFor(() => expect(screen.getByRole("button", {name:"Command 1, G_MTX, line 20"})).toHaveClass("source-match"));
+  expect(pg.inspection.selectedSeq).toBe(99);
+  expect(screen.getByRole("button", {name:"Command 99, G_MTX, line 118"})).toHaveAttribute("aria-pressed", "true");
   await fireEvent.click(screen.getByRole("button", {name:"Next page"}));
   expect(screen.getByRole("button", {name:"Command 101, G_MTX, line 20"})).toHaveClass("source-match");
   pg.selectCommand(8);

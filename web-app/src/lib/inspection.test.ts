@@ -46,12 +46,18 @@ describe("inspection selection", () => {
     inspection.capture(trace);
     inspection.select(101);
     expect(inspection.page).toBe(1);
-    expect(inspection.selectLine(20)).toBe(101);
+    inspection.browseLine(20);
+    expect(inspection.cursorLine).toBe(20);
+    expect(inspection.selectedSeq).toBe(101);
     expect(inspection.navigation).toBe(1);
-    expect(inspection.selectLine(19)).toBe(0);
-    expect(inspection.page).toBe(0);
-    expect(inspection.selectLine(999)).toBeNull();
-    expect(inspection.linkedLine).toBeNull();
+    inspection.browseLine(19);
+    expect(inspection.cursorLine).toBe(19);
+    expect(inspection.selectedSeq).toBe(101);
+    expect(inspection.page).toBe(1);
+    inspection.browseLine(999);
+    expect(inspection.cursorLine).toBe(999);
+    expect(inspection.linkedLine).toBe(20);
+    expect(inspection.navigation).toBe(1);
   });
   it("bounds stepping and drops stale links and closed traces", () => {
     const inspection = new Inspection();
@@ -63,7 +69,8 @@ describe("inspection selection", () => {
     expect(inspection.nextDraw()).toBe(8);
     inspection.invalidate();
     expect(inspection.select(8)).toBe(false);
-    expect(inspection.selectLine(27)).toBeNull();
+    inspection.browseLine(27);
+    expect(inspection.cursorLine).toBeNull();
     expect(inspection.linkedLine).toBeNull();
     inspection.capture(inspectionTrace());
     expect(inspection.stale).toBe(false);

@@ -1320,12 +1320,21 @@ describe("display list inspection", () => {
       expect(pg.inspection.open).toBe(true);
       expect(pg.inspection.selectedSeq).toBe(8);
       pg.selectCommand(5);
+      wasm.render.mockClear();
+      wasm.render_prefix.mockClear();
+      const navigation = pg.inspection.navigation;
       pg.inspectSourceLine(20);
       expect(pg.inspection.selectedSeq).toBe(5);
       pg.inspectSourceLine(21);
-      expect(pg.inspection.selectedSeq).toBe(2);
+      expect(pg.inspection.selectedSeq).toBe(5);
+      expect(pg.inspection.cursorLine).toBe(21);
       pg.inspectSourceLine(999);
-      expect(pg.inspection.selectedSeq).toBeNull();
+      expect(pg.inspection.selectedSeq).toBe(5);
+      expect(pg.inspection.cursorLine).toBe(999);
+      expect(pg.inspection.linkedLine).toBe(20);
+      expect(pg.inspection.navigation).toBe(navigation);
+      expect(wasm.render).not.toHaveBeenCalled();
+      expect(wasm.render_prefix).not.toHaveBeenCalled();
       expect(wasm.inspect).toHaveBeenCalledTimes(1);
     } finally { pg.teardown(); }
   });
