@@ -21,6 +21,7 @@ function editorMarker(anchor: Node, props: { oninput?: () => void }) {
   return marker("source")(anchor);
 }
 
+vi.mock("./DisplayListInspector.svelte", () => ({ default: marker("inspector") }));
 vi.mock("./Viewport.svelte", () => ({ default: marker("viewport") }));
 vi.mock("./Editor.svelte", () => ({ default: editorMarker }));
 vi.mock("./ToyMeta.svelte", () => ({ default: marker("meta") }));
@@ -49,10 +50,11 @@ describe("EditorPage", () => {
     render(EditorPage, { pg: new Playground(), saveController });
     expect(
       screen.getAllByTestId(
-        /viewport|source|meta|save-controls|textures|diagnostics|settings/,
+        /viewport|inspector|source|meta|save-controls|textures|diagnostics|settings/,
       ),
     ).toEqual([
       screen.getByTestId("viewport"),
+      screen.getByTestId("inspector"),
       screen.getByTestId("source"),
       screen.getByTestId("meta"),
       screen.getByTestId("save-controls"),

@@ -3,6 +3,9 @@
 //! The JS-facing surface is per-item `#[cfg(target_arch = "wasm32")]`-gated so the pure helpers below
 //! (`map_diags`/`should_present`) and their tests still build under native `cargo test`.
 
+#[cfg(any(target_arch = "wasm32", test))]
+mod inspect;
+
 use fast3d::{Diagnostic, DlSummary};
 use serde::{Deserialize, Serialize};
 
@@ -209,6 +212,35 @@ pub fn analyze_js(source: &str, microcode: &str) -> JsValue {
     to_js(&map_analysis(source, microcode))
 }
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = inspect)]
+pub fn inspect_js(source: &str, time: f32, textures: JsValue, microcode: &str) -> JsValue {
+    let out = if parse_microcode(microcode).is_none() {
+        inspect::capture(source, time, &[], microcode)
+    } else {
+        match serde_wasm_bindgen::from_value::<Vec<TextureInputIn>>(textures) {
+            Ok(inputs) => {
+                inspect::capture(source, time, &borrow_texture_inputs(&inputs), microcode)
+            }
+            Err(error) => {
+                inspect::input_error(time, microcode, format!("invalid texture inputs: {error}"))
+            }
+        }
+    };
+    out.serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .unwrap_or(JsValue::NULL)
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn clear_prefix(summary: &DlSummary, prefix: bool) -> bool {
+    prefix && !summary.renderable
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn should_present_walk(summary: &DlSummary, prefix: bool) -> bool {
+    prefix || should_present(summary)
+}
+
 /// The N64-machine boundary for web: an owned RDRAM image (the assembled DL).
 #[cfg(target_arch = "wasm32")]
 struct WebHardware {
@@ -269,6 +301,31 @@ impl Renderer {
         textures: JsValue,
         microcode: &str,
     ) -> JsValue {
+        self.render_commands(source, time, textures, microcode, None)
+    }
+
+    pub fn render_prefix(
+        &mut self,
+        source: &str,
+        time: f32,
+        textures: JsValue,
+        microcode: &str,
+        command_count: u32,
+    ) -> JsValue {
+        self.render_commands(source, time, textures, microcode, Some(command_count))
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Renderer {
+    fn render_commands(
+        &mut self,
+        source: &str,
+        time: f32,
+        textures: JsValue,
+        microcode: &str,
+        command_count: Option<u32>,
+    ) -> JsValue {
         let Some(targets) = parse_microcode(microcode) else {
             return to_js(&RenderOut {
                 presented: false,
@@ -311,15 +368,25 @@ impl Renderer {
 
         let mut diags: Vec<Diagnostic> = Vec::new();
         self.inner.begin_frame();
-        let summary = self.inner.process_dl(
-            &self.hw,
-            image.entry_addr as u64,
-            prepared.microcode,
-            &mut diags,
-        );
+        let summary = match command_count {
+            Some(count) => self.inner.process_dl_prefix(
+                &self.hw,
+                u64::from(image.entry_addr),
+                prepared.microcode,
+                &mut diags,
+                count,
+            ),
+            None => self.inner.process_dl(
+                &self.hw,
+                u64::from(image.entry_addr),
+                prepared.microcode,
+                &mut diags,
+            ),
+        };
         let diag_out = map_diags(&diags, &self.source_map);
 
-        if !should_present(&summary) {
+        let clear = clear_prefix(&summary, command_count.is_some());
+        if !should_present_walk(&summary, command_count.is_some()) {
             return to_js(&RenderOut {
                 presented: false,
                 diags: diag_out,
@@ -327,10 +394,32 @@ impl Renderer {
             });
         }
 
+        if clear {
+            self.inner.set_draw_hook(|frame| {
+                let _pass = frame
+                    .encoder
+                    .begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("empty display list prefix"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: frame.view,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        ..Default::default()
+                    });
+            });
+        }
         let error = match self.inner.present(&self.hw) {
             Ok(()) => None,
             Err(e) => Some(format!("present: {e:?}")),
         };
+        if clear {
+            self.inner.take_render_hook();
+        }
         to_js(&RenderOut {
             presented: error.is_none(),
             diags: diag_out,
@@ -352,7 +441,19 @@ mod tests {
             errors,
             dropped_runs: 0,
             renderable,
+            termination: fast3d::inspect::WalkTermination::End,
         }
+    }
+
+    #[test]
+    fn empty_prefix_clears_even_after_an_error_but_ordinary_render_keeps_its_gate() {
+        assert!(clear_prefix(&summary(false, 0, 0), true));
+        assert!(clear_prefix(&summary(false, 1, 0), true));
+        assert!(!clear_prefix(&summary(true, 0, 0), true));
+        assert!(!clear_prefix(&summary(false, 0, 0), false));
+        assert!(should_present_walk(&summary(false, 0, 0), true));
+        assert!(should_present_walk(&summary(true, 1, 0), true));
+        assert!(!should_present_walk(&summary(true, 1, 0), false));
     }
 
     #[test]

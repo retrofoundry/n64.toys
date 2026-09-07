@@ -2,9 +2,11 @@
 
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
+import { Inspection } from "./inspection.svelte";
 import Viewport from "./Viewport.svelte";
 
 const basePg = {
+  inspection: new Inspection(),
   settings: { microcode: "F3DEX2" },
   status: "ready",
   errored: false,

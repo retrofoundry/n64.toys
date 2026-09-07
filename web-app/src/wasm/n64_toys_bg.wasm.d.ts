@@ -3,8 +3,10 @@
 export const memory: WebAssembly.Memory;
 export const __wbg_renderer_free: (a: number, b: number) => void;
 export const analyze: (a: number, b: number, c: number, d: number) => any;
+export const inspect: (a: number, b: number, c: number, d: any, e: number, f: number) => any;
 export const renderer_init: (a: any) => any;
 export const renderer_render: (a: number, b: number, c: number, d: number, e: any, f: number, g: number) => any;
+export const renderer_render_prefix: (a: number, b: number, c: number, d: number, e: any, f: number, g: number, h: number) => any;
 export const renderer_shutdown: (a: number) => void;
 export const start: () => void;
 export const wasm_bindgen__closure__destroy__h0935b00e02a5d6d9: (a: number, b: number) => void;

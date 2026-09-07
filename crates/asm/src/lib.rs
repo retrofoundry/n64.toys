@@ -3,7 +3,9 @@
 #[allow(clippy::module_inception)]
 pub(crate) mod asm;
 mod expr;
+mod opcode;
 mod parser;
+pub use opcode::opcode_name;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Microcode {

@@ -5,9 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const wasm = vi.hoisted(() => {
   const render = vi.fn();
   const shutdown = vi.fn();
-  const renderer = { render, shutdown };
+  const render_prefix = vi.fn();
+  const inspect = vi.fn();
+  const renderer = { render, shutdown, render_prefix };
   return {
     render,
+    render_prefix,
+    inspect,
     shutdown,
     renderer,
     rendererInit: vi.fn(async () => renderer),
@@ -21,8 +25,10 @@ vi.mock("../wasm/n64_toys.js", () => ({
   default: vi.fn(async () => undefined),
   Renderer: { init: wasm.rendererInit },
   analyze: wasm.analyze,
+  inspect: wasm.inspect,
 }));
 
+import { inspectionTrace } from "./test/inspection";
 import { Playground } from "./playground.svelte";
 import type { TextureDeclaration } from "./texture-inputs";
 import type { Toy } from "../toys/types";
@@ -75,6 +81,7 @@ function toy(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  wasm.inspect.mockImplementation(() => inspectionTrace());
   wasm.rendererInit.mockResolvedValue(wasm.renderer);
   wasm.render.mockReturnValue({
     diags: [],
@@ -243,6 +250,7 @@ describe("Playground renderer lifetime", () => {
     const firstInit = playground.init({} as HTMLCanvasElement);
     await vi.waitFor(() => expect(wasm.rendererInit).toHaveBeenCalledOnce());
     const current = {
+      render_prefix: vi.fn(),
       render: vi.fn(() => ({ diags: [], presented: true, error: undefined })),
       shutdown: vi.fn(),
     };
@@ -1193,5 +1201,136 @@ describe("Playground frame presentation", () => {
     playground.declarationDiags = [{ ...diag, kind: "src", severity: "warn" }];
     expect(playground.renderForCapture()).toBe(false);
     expect(playground.diags.map((d) => d.severity)).toEqual(["warn", "error"]);
+  });
+});
+
+
+describe("display list inspection", () => {
+  async function playground() {
+    const pg = new Playground();
+    await pg.init(document.createElement("canvas"));
+    pg.source = "source";
+    pg.isAnimated = true;
+    wasm.render.mockClear();
+    wasm.inspect.mockClear();
+    return pg;
+  }
+
+  it("makes zero inspect calls while closed through run, edits, seeking and playback", async () => {
+    vi.useFakeTimers();
+    const pg = await playground();
+    try {
+      pg.run();
+      pg.seek(1.37);
+      pg.source = "changed";
+      pg.scheduleRun();
+      vi.advanceTimersByTime(301);
+      pg.isAnimated = true;
+      pg.play();
+      vi.advanceTimersByTime(40);
+      pg.pause();
+      expect(wasm.inspect).not.toHaveBeenCalled();
+    } finally { pg.teardown(); vi.useRealTimers(); }
+  });
+
+  it("pauses and captures frozen inputs; selection only renders prefixes; close restores once", async () => {
+    const pg = await playground();
+    try {
+      pg.seek(1.37);
+      pg.play();
+      wasm.render.mockClear();
+      pg.toggleInspection();
+      expect(pg.playing).toBe(false);
+      expect(wasm.inspect).toHaveBeenCalledExactlyOnceWith("source", Math.fround(1.37), expect.any(Array), "F3DEX2");
+      expect(wasm.render).toHaveBeenCalledTimes(1);
+      pg.selectCommand(8);
+      expect(wasm.render_prefix).toHaveBeenLastCalledWith("source", Math.fround(1.37), wasm.inspect.mock.calls[0][2], "F3DEX2", 9);
+      pg.stepCommand(-1);
+      expect(wasm.render_prefix.mock.lastCall?.[4]).toBe(8);
+      pg.nextDrawCommand();
+      expect(wasm.render_prefix.mock.lastCall?.[4]).toBe(9);
+      expect(wasm.inspect).toHaveBeenCalledTimes(1);
+      wasm.render.mockClear();
+      pg.toggleInspection();
+      expect(wasm.render).toHaveBeenCalledExactlyOnceWith("source", 1.37, expect.any(Array), "F3DEX2");
+      expect(pg.inspection.trace).toBeNull();
+      expect(pg.playing).toBe(false);
+      expect(wasm.inspect).toHaveBeenCalledTimes(1);
+    } finally { pg.teardown(); }
+  });
+
+  it("invalidates on edits and play, refreshes on debounce, run, seek and pause", async () => {
+    vi.useFakeTimers();
+    const pg = await playground();
+    try {
+      pg.toggleInspection();
+      pg.selectCommand(8);
+      pg.source = "edited";
+      pg.scheduleRun();
+      expect(pg.inspection.stale).toBe(true);
+      expect(pg.inspection.linkedLine).toBeNull();
+      const prefixes = wasm.render_prefix.mock.calls.length;
+      pg.selectCommand(1);
+      expect(wasm.render_prefix).toHaveBeenCalledTimes(prefixes);
+      vi.advanceTimersByTime(300);
+      expect(wasm.inspect).toHaveBeenCalledTimes(2);
+      expect(pg.inspection.stale).toBe(false);
+      pg.run();
+      pg.seek(2);
+      expect(wasm.inspect).toHaveBeenCalledTimes(4);
+      expect(wasm.inspect.mock.lastCall?.[1]).toBe(2);
+      pg.isAnimated = true;
+      pg.play();
+      expect(pg.inspection.stale).toBe(true);
+      pg.run();
+      vi.advanceTimersByTime(40);
+      expect(wasm.inspect).toHaveBeenCalledTimes(4);
+      pg.pause();
+      expect(wasm.inspect).toHaveBeenCalledTimes(5);
+      expect(pg.inspection.stale).toBe(false);
+    } finally { pg.teardown(); vi.useRealTimers(); }
+  });
+
+  it("links cursor lines, preserves repeated execution and selects diagnostic commands", async () => {
+    const pg = await playground();
+    const trace = inspectionTrace();
+    trace.rows[5].line = trace.rows[1].line;
+    trace.diags = [{line:27,kind:"src",msg:"warning",severity:"warn",pc:trace.rows[8].pc,seq:null}];
+    wasm.inspect.mockReturnValue(trace);
+    try {
+      pg.inspectDiagnostic({line:27,kind:"src",msg:"warning",severity:"warn"});
+      expect(pg.inspection.open).toBe(true);
+      expect(pg.inspection.selectedSeq).toBe(8);
+      pg.selectCommand(5);
+      pg.inspectSourceLine(20);
+      expect(pg.inspection.selectedSeq).toBe(5);
+      pg.inspectSourceLine(21);
+      expect(pg.inspection.selectedSeq).toBe(2);
+      pg.inspectSourceLine(999);
+      expect(pg.inspection.selectedSeq).toBeNull();
+      expect(wasm.inspect).toHaveBeenCalledTimes(1);
+    } finally { pg.teardown(); }
+  });
+
+  it("refreshes after texture and microcode changes and keeps the capture texture snapshot", async () => {
+    const pg = await playground();
+    wasm.analyze.mockReturnValue({textures:[declaration("grass")],references_time:false,diags:[]});
+    pg.source = "texture source";
+    try {
+      pg.toggleInspection();
+      await pg.loadTexture("grass", pngFile("grass.png", [255,0,0,255]));
+      expect(wasm.inspect).toHaveBeenCalledTimes(2);
+      const inputs = wasm.inspect.mock.lastCall?.[2];
+      expect(inputs[0].rgba).toEqual(new Uint8Array([255,0,0,255]));
+      pg.selectCommand(0);
+      expect(wasm.render_prefix.mock.lastCall?.[2]).toBe(inputs);
+      pg.settings.microcode = "F3D";
+      pg.reconcileTextureDeclarations();
+      expect(pg.inspection.stale).toBe(true);
+      pg.run();
+      expect(wasm.inspect.mock.lastCall?.[3]).toBe("F3D");
+      pg.removeTexture("grass");
+      expect(wasm.inspect).toHaveBeenCalledTimes(4);
+    } finally { pg.teardown(); }
   });
 });

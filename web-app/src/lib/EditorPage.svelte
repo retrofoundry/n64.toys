@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Playground } from "./playground.svelte";
+  import DisplayListInspector from "./DisplayListInspector.svelte";
   import Viewport from "./Viewport.svelte";
   import Editor from "./Editor.svelte";
   import ToyMeta from "./ToyMeta.svelte";
@@ -32,10 +33,14 @@
     onclick={() => onexit()}>← browse</button
   >
   <div class="editor-viewport"><Viewport {pg} bind:canvas /></div>
+  <div class="editor-inspector"><DisplayListInspector {pg} /></div>
   <div class="editor-source">
     <Editor
       bind:value={pg.source}
       diagnostics={pg.diags}
+      inspectionLine={pg.inspection.linkedLine}
+      inspectionNavigation={pg.inspection.navigation}
+      oncursorline={(line) => pg.inspectSourceLine(line)}
       onrun={() => pg.run()}
       oninput={() => {
         pg.scheduleRun();
@@ -53,6 +58,6 @@
       onremove={(name) => pg.removeTexture(name)}
     />
   </div>
-  <div class="editor-diagnostics"><Diagnostics diagnostics={pg.diags} /></div>
+  <div class="editor-diagnostics"><Diagnostics diagnostics={pg.diags} onselect={(diagnostic) => pg.inspectDiagnostic(diagnostic)} /></div>
   <div class="editor-settings"><Settings {pg} /></div>
 </main>
