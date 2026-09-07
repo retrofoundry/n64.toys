@@ -23,7 +23,13 @@ export function inspectLine(view: EditorView, line: number | null, navigate = fa
   const effects = [setInspectionLine.of(valid ? line : null)];
   if (valid && navigate) {
     const anchor = view.state.doc.line(line).from;
-    view.dispatch({ effects: [...effects, EditorView.scrollIntoView(anchor, { y: "center" })], selection: { anchor }, annotations: inspectionNavigation.of(true) });
+    view.dispatch({ effects, selection: { anchor }, annotations: inspectionNavigation.of(true) });
+    // Scroll the editor's own scroller: CodeMirror's scrollIntoView also scrolls the page.
+    const block = view.lineBlockAt(anchor);
+    const scroller = view.scrollDOM;
+    if (block.top < scroller.scrollTop || block.bottom > scroller.scrollTop + scroller.clientHeight) {
+      scroller.scrollTop = Math.max(0, (block.top + block.bottom - scroller.clientHeight) / 2);
+    }
   } else view.dispatch({ effects });
 }
 export function cursorLineChanged(update: ViewUpdate, callback: (line: number) => void): void {

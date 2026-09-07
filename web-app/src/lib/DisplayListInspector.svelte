@@ -16,7 +16,9 @@
       const list = (event.currentTarget as HTMLElement).closest("[data-inspection]");
       pg.stepCommand(event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 1);
       await tick();
-      list?.querySelector<HTMLButtonElement>('.inspection-row[aria-pressed="true"]')?.focus();
+      const row = list?.querySelector<HTMLButtonElement>('.inspection-row[aria-pressed="true"]');
+      row?.focus({ preventScroll: true });
+      row?.scrollIntoView?.({ block: "nearest" });
     }
   }
 </script>
