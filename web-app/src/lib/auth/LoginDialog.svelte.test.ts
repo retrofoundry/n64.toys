@@ -37,7 +37,7 @@ describe("LoginDialog", () => {
       () => new Promise<void>((resolve) => (finish = resolve)),
     );
     await openDialog(actions(signInWithGitHub));
-    const continueButton = screen.getByRole("button", { name: "Continue with GitHub" });
+    const continueButton = screen.getByRole("button", { name: "Sign in with GitHub" });
 
     await fireEvent.click(continueButton);
 
@@ -55,7 +55,7 @@ describe("LoginDialog", () => {
     });
     await openDialog(actions(signInWithGitHub));
 
-    await fireEvent.click(screen.getByRole("button", { name: "Continue with GitHub" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Sign in with GitHub" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to start GitHub login. Please try again.",

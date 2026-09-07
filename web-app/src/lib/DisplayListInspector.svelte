@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { StepForward } from "@lucide/svelte";
   import { tick } from "svelte";
   import type { Playground } from "./playground.svelte";
   import { emittedCount, pageCount, pageRows } from "./inspection";
@@ -29,8 +30,9 @@
 </script>
 
 {#snippet actions()}
-  <button type="button" class="ui-button" aria-label={inspection.open ? "Close display list" : "Open display list"}
-    aria-expanded={inspection.open} onclick={() => pg.toggleInspection()}>{inspection.open ? "Close" : "Open"}</button>
+  {#if !inspection.open}
+    <button type="button" class="ui-button inspection-toggle" aria-pressed={false} onclick={() => pg.toggleInspection()}><StepForward size={15} strokeWidth={2} /> Step through frame</button>
+  {/if}
 {/snippet}
 
 <Panel title="display list" {actions}>
@@ -38,7 +40,7 @@
     <div data-inspection role="group" aria-label="Display list commands">
       {#if inspection.stale}<p class="p-3 text-n64-yellow text-xs" role="status">Stale trace · pause or run to refresh. Source linking and stepping are disabled.</p>{/if}
       {#if trace}
-        <p class="p-3 text-xs">{trace.microcode} · {trace.time.toFixed(3)}s · {trace.dispatched} commands · {trace.termination === "end" ? "end" : `partial: ${trace.termination}`}</p>
+        <p class="p-3 text-xs">{trace.microcode} · {trace.time.toFixed(3)}s · {trace.dispatched} commands · {trace.termination === "end" ? "frame complete" : `last captured command ${trace.rows.at(-1)?.seq ?? "none"} · partial: ${trace.termination}`}</p>
         {#if trace.error}<p class="px-3 text-n64-red text-xs" role="alert">{trace.error}</p>{/if}
         <div class="inspection-rows">
           <div>
@@ -47,9 +49,9 @@
               <button type="button" class:source-match={!inspection.stale && row.line !== null && row.line === inspection.cursorLine}
                 class="inspection-row" onkeydown={keydown} aria-label={`Command ${row.seq}, ${row.decoded.mnemonic}, line ${row.line ?? "unknown"}`}
                 aria-pressed={row.seq === inspection.selectedSeq} disabled={inspection.stale} onclick={() => pg.selectCommand(row.seq)}>
-                <span>{row.seq}</span><span>{row.line ?? "—"}</span>
+                <span class="inspection-position">{#if row.seq === inspection.selectedSeq}<span class="inspection-marker" aria-label="Rendered through">→</span>{/if}{row.seq}</span><span>{row.line ?? "—"}</span>
                 <span class="truncate" style={`padding-left:${Math.min(row.depthBefore, 12) * 8}px`} title={`depth ${row.depthBefore}: ${sources.get(row.line ?? 0) ?? "unmapped"}`}>{sources.get(row.line ?? 0) ?? "unmapped"}</span>
-                <span>{row.decoded.mnemonic}</span><span>{emittedCount(row)}</span>
+                <span class="inspection-mnemonic">{row.decoded.mnemonic}</span><span>{emittedCount(row)}</span>
               </button>
             {/each}
           </div>

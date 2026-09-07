@@ -552,7 +552,8 @@ export class Playground {
       ? { version: 1, time: inputs.time, microcode: inputs.microcode, entry: null, termination: "stopped", dispatched: 0, rows: [], states: [], sourceLines: [], diags: [], error: this.textureLimitError } as Trace
       : inspect(inputs.source, inputs.time, inputs.textures, inputs.microcode) as Trace;
     this.inspection.capture(trace);
-    if (this.inspection.selectedSeq !== null) this.selectCommand(this.inspection.selectedSeq, false);
+    const seq = this.inspection.selectedSeq ?? trace.rows.at(-1)?.seq;
+    if (seq !== undefined) this.selectCommand(seq, false);
   }
 
   toggleInspection(): void {
@@ -585,6 +586,11 @@ export class Playground {
   nextDrawCommand(): void {
     const seq = this.inspection.nextDraw();
     if (seq !== null) this.selectCommand(seq);
+  }
+
+  renderToEnd(): void {
+    const seq = this.inspection.trace?.rows.at(-1)?.seq;
+    if (seq !== undefined) this.selectCommand(seq);
   }
 
   inspectSourceLine(line: number): void {

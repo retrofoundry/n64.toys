@@ -14,14 +14,19 @@ it("links and scrolls rows, suppresses cursor echoes, and clears on document cha
     expect(view.state.selection.main.head).toBe(6);
     expect(view.state.field(inspectionField).size).toBe(1);
     expect(view.dom.querySelector(".cm-inspection-line")?.textContent).toBe("second");
+    expect(view.dom.querySelector(".cm-inspection-gutter .inspection-marker")).toHaveTextContent("→");
+    expect(view.dom.querySelector(".cm-inspection-gutter .inspection-marker")).toHaveAttribute("aria-label", "Rendered through this line");
     expect(cursor).not.toHaveBeenCalled();
     view.dispatch({selection:{anchor:13}});
     expect(cursor).toHaveBeenCalledWith(3);
+    expect(view.dom.querySelector(".cm-inspection-line")?.textContent).toBe("second");
     view.dispatch({changes:{from:0,insert:"new\n"}});
     expect(view.state.field(inspectionField).size).toBe(0);
+    expect(view.dom.querySelector(".cm-inspection-gutter .inspection-marker")).toBeNull();
     expect(cursor).toHaveBeenCalledTimes(1);
     inspectLine(view, 999, true);
     expect(view.state.field(inspectionField).size).toBe(0);
+    expect(view.dom.querySelector(".cm-inspection-gutter .inspection-marker")).toBeNull();
   } finally { view.destroy(); }
 });
 it("coexists with lint and clearing inspection leaves lint intact", async () => {
@@ -37,6 +42,7 @@ it("coexists with lint and clearing inspection leaves lint intact", async () => 
     });
     inspectLine(view,null);
     expect(view.state.field(inspectionField).size).toBe(0);
+    expect(view.dom.querySelector(".cm-inspection-gutter .inspection-marker")).toBeNull();
     const diagnostics: string[] = [];
     forEachDiagnostic(view.state,d=>diagnostics.push(d.message));
     expect(diagnostics).toEqual(["warning"]);

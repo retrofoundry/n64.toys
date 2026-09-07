@@ -1259,6 +1259,24 @@ describe("display list inspection", () => {
     } finally { pg.teardown(); }
   });
 
+  it("opens at the last captured command and renders to the end from an earlier prefix", async () => {
+    const pg = await playground();
+    try {
+      pg.toggleInspection();
+      expect(pg.inspection.selectedSeq).toBe(9);
+      expect(wasm.render_prefix.mock.lastCall?.[4]).toBe(10);
+      pg.selectCommand(1);
+      wasm.render.mockClear();
+      const captures = wasm.inspect.mock.calls.length;
+      pg.renderToEnd();
+      expect(pg.inspection.selectedSeq).toBe(9);
+      expect(pg.inspection.open).toBe(true);
+      expect(wasm.render_prefix.mock.lastCall?.[4]).toBe(10);
+      expect(wasm.render).not.toHaveBeenCalled();
+      expect(wasm.inspect).toHaveBeenCalledTimes(captures);
+    } finally { pg.teardown(); }
+  });
+
   it("invalidates on edits and play, refreshes on debounce, run, seek and pause", async () => {
     vi.useFakeTimers();
     const pg = await playground();

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Play, Pause, RotateCcw, Maximize } from "@lucide/svelte";
+  import { Play, Pause, RotateCcw, Maximize, StepForward } from "@lucide/svelte";
   import type { Playground } from "./playground.svelte";
 
   let { pg, canvas }: { pg: Playground; canvas?: HTMLCanvasElement } = $props();
@@ -21,9 +21,9 @@
       aria-label="Fullscreen"
       class="ui-button flex min-h-8 items-center justify-center"
     ><Maximize size={15} strokeWidth={2} /></button>
-    <button type="button" class="ui-button flex min-h-8 items-center justify-center"
-      aria-label="Display list" aria-pressed={pg.inspection.open}
-      onclick={() => pg.toggleInspection()}>Display list</button>
+    <button type="button" class="ui-button inspection-toggle flex min-h-8 items-center justify-center gap-1.5"
+      aria-label="Step through frame" aria-pressed={pg.inspection.open}
+      onclick={() => pg.toggleInspection()}><StepForward size={15} strokeWidth={2} /> Step through frame</button>
   </div>
 
   {#if pg.isAnimated}
