@@ -61,7 +61,7 @@ it("renders to the last command without closing the dock", async () => {
   expect(pg.inspection.selectedSeq).toBe(204);
   expect(pg.inspection.page).toBe(2);
   expect(pg.inspection.open).toBe(true);
-  expect(screen.getByText("Rendered through command 204 · G_MTX · line 223")).toBeInTheDocument();
+  expect(screen.getByText("Selected command 204 · G_MTX · line 223")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Step through frame" })).toHaveAttribute("aria-pressed", "true");
 });
 
@@ -76,9 +76,34 @@ it("names the last captured command for capped traces and labels unmapped comman
   await fireEvent.click(screen.getByRole("button", { name: "Render to last captured command" }));
   expect(pg.inspection.selectedSeq).toBe(9);
   expect(screen.getByText("Last captured command 9 · partial: cap")).toBeInTheDocument();
-  expect(screen.getByText("Rendered through command 9 · G_MTX · unmapped")).toBeInTheDocument();
+  expect(screen.getByText("Selected command 9 · G_MTX · unmapped")).toBeInTheDocument();
   expect(screen.getByRole("region", { name: "Frame stepping" }).textContent).not.toMatch(/\bend\b/i);
   pg.inspection.invalidate();
   await tick();
   expect(screen.getByRole("button", { name: "Render to last captured command" })).toBeDisabled();
+});
+
+it("warns beside the image when a prefix was not presented, then clears on successful presentation", async () => {
+  vi.stubGlobal("navigator", { gpu: {} });
+  const pg = new Playground();
+  render(StepDock, { pg });
+  try {
+    await pg.init(screen.getByLabelText<HTMLCanvasElement>("N64 render output"));
+    pg.toggleInspection();
+    await tick();
+    wasm.render_prefix.mockReturnValueOnce({ presented: false, diags: [], error: null });
+    await fireEvent.click(screen.getByRole("button", { name: "Step back" }));
+    expect(pg.inspection.presented).toBe(false);
+    const warning = screen.getByText("This prefix presented no image. The canvas still shows the previous image.");
+    expect(warning.closest(".inspection-image")).toContainElement(screen.getByLabelText("N64 render output"));
+    expect(screen.getByText("Selected command 8 · G_TRI1 · line 27")).toBeInTheDocument();
+    expect(screen.queryByText(/Rendered through command/)).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByRole("button", { name: "Step forward" }));
+    expect(pg.inspection.presented).toBe(true);
+    expect(warning).not.toBeInTheDocument();
+    expect(screen.getByText("Rendered through command 9 · G_MTX · line 28")).toBeInTheDocument();
+  } finally {
+    pg.teardown();
+    vi.unstubAllGlobals();
+  }
 });

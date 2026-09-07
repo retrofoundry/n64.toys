@@ -1277,6 +1277,29 @@ describe("display list inspection", () => {
     } finally { pg.teardown(); }
   });
 
+  it("tracks prefix presentation and clears it when the selected image no longer applies", async () => {
+    const pg = await playground();
+    try {
+      pg.toggleInspection();
+      wasm.render_prefix.mockReturnValueOnce({ presented: false, diags: [], error: null });
+      pg.selectCommand(1);
+      expect(pg.inspection.presented).toBe(false);
+      pg.inspectSourceLine(27);
+      expect(pg.inspection.presented).toBe(false);
+      wasm.render_prefix.mockReturnValueOnce({ presented: true, diags: [], error: null });
+      pg.selectCommand(8);
+      expect(pg.inspection.presented).toBe(true);
+      pg.renderForCapture();
+      expect(pg.inspection.presented).toBeNull();
+      wasm.render_prefix.mockReturnValueOnce({ presented: true, diags: [], error: null });
+      pg.selectCommand(8);
+      pg.inspection.invalidate();
+      expect(pg.inspection.presented).toBeNull();
+      pg.toggleInspection();
+      expect(pg.inspection.presented).toBeNull();
+    } finally { pg.teardown(); }
+  });
+
   it("invalidates on edits and play, refreshes on debounce, run, seek and pause", async () => {
     vi.useFakeTimers();
     const pg = await playground();

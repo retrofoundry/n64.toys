@@ -6,6 +6,7 @@ export class Inspection {
   selectedSeq = $state<number | null>(null);
   page = $state(0);
   stale = $state(false);
+  presented = $state<boolean | null>(null);
   cursorLine = $state<number | null>(null);
   navigation = $state(0);
 
@@ -17,6 +18,7 @@ export class Inspection {
   }
   capture(trace: Trace): void {
     this.trace = trace;
+    this.presented = null;
     this.stale = false;
     if (!trace.rows.some(row => row.seq === this.selectedSeq)) this.selectedSeq = null;
     this.page = Math.min(this.page, pageCount(trace.rows.length) - 1);
@@ -25,6 +27,7 @@ export class Inspection {
   select(seq: number, navigate = true): boolean {
     if (!this.open || this.stale || !this.trace?.rows.some(row => row.seq === seq)) return false;
     this.selectedSeq = seq;
+    this.presented = null;
     this.page = Math.floor(seq / PAGE_SIZE);
     if (navigate) {
       this.cursorLine = this.selected?.line ?? null;
@@ -43,9 +46,9 @@ export class Inspection {
     return row?.seq ?? null;
   }
   nextDraw(): number | null { return nextDraw(this.trace?.rows ?? [], this.selectedSeq); }
-  invalidate(): void { if (this.open) this.stale = true; this.cursorLine = null; }
+  invalidate(): void { if (this.open) this.stale = true; this.cursorLine = null; this.presented = null; }
   close(): void {
-    this.open = false; this.trace = null; this.selectedSeq = null;
+    this.open = false; this.trace = null; this.selectedSeq = null; this.presented = null;
     this.page = 0; this.stale = false; this.cursorLine = null;
   }
 }

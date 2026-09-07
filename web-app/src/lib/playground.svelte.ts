@@ -345,6 +345,7 @@ export class Playground {
 
   #renderCurrentSnapshot(t: number): RenderResult | null {
     if (!this.#renderer) return null;
+    this.inspection.presented = null;
     const snapshot = Object.freeze({
       source: this.source,
       textures: this.#renderTextures,
@@ -575,6 +576,7 @@ export class Playground {
     const result = this.#renderer.render_prefix(
       inputs.source, inputs.time, inputs.textures, inputs.microcode, seq + 1,
     ) as RenderResult | null;
+    this.inspection.presented = result?.presented ?? false;
     this.#applyRenderResult(result);
   }
 

@@ -27,15 +27,20 @@
 </script>
 
 <section class="editor-step-dock" aria-label="Frame stepping" hidden={!inspection.open}>
-  <div class="inspection-preview" bind:this={preview}>
-    <div class="inspection-viewport" use:placeViewport><Viewport {pg} bind:canvas /></div>
+  <div class="inspection-image">
+    <div class="inspection-preview" bind:this={preview}>
+      <div class="inspection-viewport" use:placeViewport><Viewport {pg} bind:canvas /></div>
+    </div>
+    {#if inspection.open && selected && !inspection.stale && inspection.presented !== true}
+      <p class="inspection-presentation" role="status">{inspection.presented === false ? "This prefix presented no image. The canvas still shows the previous image." : "This prefix has not been rendered. The canvas may show an earlier image."}</p>
+    {/if}
   </div>
   {#if inspection.open}
     <div class="inspection-current">
       <button type="button" class="ui-button inspection-toggle" aria-pressed={inspection.open} onclick={() => pg.toggleInspection()}><StepForward size={15} strokeWidth={2} /> Step through frame</button>
       <p class="inspection-command" role="status">
         {#if inspection.stale}Stale trace · run to refresh.
-        {:else if selected}Rendered through command {selected.seq} · {selected.decoded.mnemonic} · {selected.line === null ? "unmapped" : `line ${selected.line}`}
+        {:else if selected}{inspection.presented === true ? "Rendered through command" : "Selected command"} {selected.seq} · {selected.decoded.mnemonic} · {selected.line === null ? "unmapped" : `line ${selected.line}`}
         {:else}Select a command to render through.{/if}
       </p>
       <div class="inspection-controls">
