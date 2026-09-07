@@ -1,27 +1,40 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { expect, it, vi } from "vitest";
+import { tick } from "svelte";
 import { Playground } from "./playground.svelte";
 import DisplayListInspector from "./DisplayListInspector.svelte";
-import StepDock from "./StepDock.svelte";
 import PlayerBar from "./PlayerBar.svelte";
 import { inspectionTrace } from "./test/inspection";
 
 it("starts collapsed and has a toggle even for static toys", async () => {
   const pg = new Playground();
   render(PlayerBar, {pg});
-  render(DisplayListInspector, {pg});
-  render(StepDock, {pg});
   expect(screen.queryByRole("button", {name:"Step forward"})).not.toBeInTheDocument();
   expect(screen.queryByRole("button", {name:"Play"})).not.toBeInTheDocument();
-  const toggle = screen.getAllByRole("button", {name:"Step through frame"})[0];
+  const toggle = screen.getByRole("button", {name:"Step through frame"});
   await fireEvent.click(toggle);
   expect(pg.inspection.open).toBe(true);
   expect(toggle).toHaveAttribute("aria-pressed","true");
-  expect(screen.getByRole("region", {name:"Frame stepping"})).toBeInTheDocument();
+  render(DisplayListInspector, {pg});
+  expect(screen.getByRole("group", {name:"Frame stepping"})).toBeInTheDocument();
   await fireEvent.click(screen.getByRole("button", {name:"Exit"}));
   expect(pg.inspection.trace).toBeNull();
   expect(toggle).toHaveAttribute("aria-pressed","false");
+});
+
+it("keeps the player bar in place while stepping but freezes its time controls", async () => {
+  vi.spyOn(Playground.prototype, "hasRenderer", "get").mockReturnValue(true);
+  const pg = new Playground();
+  pg.isAnimated = true;
+  render(PlayerBar, {pg});
+  expect(screen.getByRole("slider", {name:"Time"})).toBeEnabled();
+  pg.inspection.open = true;
+  await tick();
+  expect(screen.getByRole("button", {name:"Step through frame"})).toHaveAttribute("aria-pressed","true");
+  expect(screen.getByRole("slider", {name:"Time"})).toBeDisabled();
+  expect(screen.getByRole("button", {name:"Play"})).toBeDisabled();
+  expect(screen.getByRole("button", {name:"Reset"})).toBeDisabled();
 });
 
 it("pages commands, selects with arrows, links repeated rows and expands raw continuations", async () => {
@@ -33,7 +46,6 @@ it("pages commands, selects with arrows, links repeated rows and expands raw con
   pg.inspection.open = true;
   pg.inspection.capture(trace);
   render(DisplayListInspector, {pg});
-  render(StepDock, {pg});
   expect(screen.getAllByRole("button", {name:/^Command /})).toHaveLength(100);
   await fireEvent.click(screen.getByRole("button", {name:"Next page"}));
   expect(screen.getByText("Page 2 / 3")).toBeInTheDocument();
@@ -71,9 +83,8 @@ it("shows partial traces, emissions and terminal diagnostics, and disables stale
   pg.inspection.open = true;
   pg.inspection.capture(trace);
   render(DisplayListInspector, {pg});
-  render(StepDock, {pg});
   await fireEvent.click(screen.getByRole("button", {name:"Next draw"}));
-  expect(screen.getAllByText(/partial: cap/)).toHaveLength(2);
+  expect(screen.getByText(/partial: cap/)).toBeInTheDocument();
   expect(screen.getByText(/Terminal diagnostic: missing render mode/)).toBeInTheDocument();
   expect(screen.getByText(/Framebuffer source: 0x00200000/)).toBeInTheDocument();
   expect(screen.getByText(/Explicit tile 3/)).toBeInTheDocument();

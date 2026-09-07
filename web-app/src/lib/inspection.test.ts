@@ -78,6 +78,20 @@ describe("inspection selection", () => {
     expect(inspection.trace).toBeNull();
     expect(inspection.selectedSeq).toBeNull();
   });
+  it("leaves the editor on the command it exited from, and nowhere after a stale exit", () => {
+    const inspection = new Inspection();
+    inspection.open = true;
+    inspection.capture(inspectionTrace());
+    inspection.select(8);
+    inspection.close();
+    expect(inspection.exitLine).toBe(27);
+    inspection.open = true;
+    inspection.capture(inspectionTrace());
+    inspection.select(8);
+    inspection.invalidate();
+    inspection.close();
+    expect(inspection.exitLine).toBeNull();
+  });
 });
 
 it("marks the second combiner slot active in one-cycle mode", () => {

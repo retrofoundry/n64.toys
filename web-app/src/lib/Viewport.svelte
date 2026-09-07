@@ -6,7 +6,7 @@
   let { pg, canvas = $bindable() }: { pg: Playground; canvas?: HTMLCanvasElement } = $props();
 </script>
 
-<Panel title={pg.inspection.open ? undefined : "viewport"}>
+<Panel title="viewport">
   <div class="viewport-image flex aspect-[4/3] items-center justify-center bg-[#050605]">
     {#if pg.rendererState === "unsupported"}
       <div class="max-w-sm p-6 text-center text-sm text-ink-dim">
@@ -38,5 +38,5 @@
       ></canvas>
     {/if}
   </div>
-  {#if !pg.inspection.open}<PlayerBar {pg} {canvas} />{/if}
+  <PlayerBar {pg} {canvas} />
 </Panel>

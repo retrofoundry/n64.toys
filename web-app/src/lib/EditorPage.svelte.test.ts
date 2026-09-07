@@ -9,27 +9,16 @@ const components = vi.hoisted(() => ({
   editorProps: undefined as { oninput?: () => void } | undefined,
 }));
 
-function marker(testId: string) {
-  return (anchor: Node) => {
-    const element = document.createElement("section");
-    element.dataset.testid = testId;
-    anchor.parentNode?.insertBefore(element, anchor);
-  };
-}
-
-function editorMarker(anchor: Node, props: { oninput?: () => void }) {
-  components.editorProps = props;
-  return marker("source")(anchor);
-}
-
-vi.mock("./DisplayListInspector.svelte", () => ({ default: marker("inspector") }));
-vi.mock("./Viewport.svelte", () => ({ default: marker("viewport") }));
-vi.mock("./Editor.svelte", () => ({ default: editorMarker }));
-vi.mock("./ToyMeta.svelte", () => ({ default: marker("meta") }));
-vi.mock("./TextureInputs.svelte", () => ({ default: marker("textures") }));
-vi.mock("./Diagnostics.svelte", () => ({ default: marker("diagnostics") }));
-vi.mock("./Settings.svelte", () => ({ default: marker("settings") }));
-vi.mock("./SaveControls.svelte", () => ({ default: marker("save-controls") }));
+vi.mock("./DisplayListInspector.svelte", async () => ({ default: (await import("./test/marker")).marker("inspector") }));
+vi.mock("./Viewport.svelte", async () => ({ default: (await import("./test/marker")).marker("viewport") }));
+vi.mock("./Editor.svelte", async () => ({
+  default: (await import("./test/marker")).marker("source", props => (components.editorProps = props)),
+}));
+vi.mock("./ToyMeta.svelte", async () => ({ default: (await import("./test/marker")).marker("meta") }));
+vi.mock("./TextureInputs.svelte", async () => ({ default: (await import("./test/marker")).marker("textures") }));
+vi.mock("./Diagnostics.svelte", async () => ({ default: (await import("./test/marker")).marker("diagnostics") }));
+vi.mock("./Settings.svelte", async () => ({ default: (await import("./test/marker")).marker("settings") }));
+vi.mock("./SaveControls.svelte", async () => ({ default: (await import("./test/marker")).marker("save-controls") }));
 
 import EditorPage from "./EditorPage.svelte";
 
@@ -55,7 +44,6 @@ describe("EditorPage", () => {
       ),
     ).toEqual([
       screen.getByTestId("viewport"),
-      screen.getByTestId("inspector"),
       screen.getByTestId("source"),
       screen.getByTestId("meta"),
       screen.getByTestId("save-controls"),
@@ -65,15 +53,23 @@ describe("EditorPage", () => {
     ]);
   });
 
-  it("pins the dock above the workspace as its sibling", async () => {
+  it("swaps the source column for the stepping panel and leaves the viewport in place", async () => {
     const pg = new Playground();
-    const { container } = render(EditorPage, { pg, saveController });
+    render(EditorPage, { pg, saveController });
+    expect(screen.getByTestId("source")).toBeInTheDocument();
+    expect(screen.queryByTestId("inspector")).not.toBeInTheDocument();
+    const viewportBefore = screen.getByTestId("viewport").parentElement;
+
     pg.toggleInspection();
     await tick();
-    const dock = screen.getByRole("region", { name: "Frame stepping" });
-    expect(dock.nextElementSibling).toBe(container.querySelector(".editor-workspace"));
-    expect(dock).toContainElement(screen.getByTestId("viewport"));
-    expect(dock).not.toContainElement(screen.getByTestId("inspector"));
+    expect(screen.getByTestId("inspector").parentElement).toHaveClass("editor-source");
+    expect(screen.queryByTestId("source")).not.toBeInTheDocument();
+    expect(screen.getByTestId("viewport").parentElement).toBe(viewportBefore);
+
+    pg.toggleInspection();
+    await tick();
+    expect(screen.getByTestId("source")).toBeInTheDocument();
+    expect(screen.queryByTestId("inspector")).not.toBeInTheDocument();
   });
 
   it("returns to browse", async () => {

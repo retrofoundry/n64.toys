@@ -8,6 +8,7 @@ export class Inspection {
   stale = $state(false);
   presented = $state<boolean | null>(null);
   cursorLine = $state<number | null>(null);
+  exitLine = $state<number | null>(null);
   navigation = $state(0);
 
   get selected(): InspectionRow | undefined {
@@ -48,6 +49,8 @@ export class Inspection {
   nextDraw(): number | null { return nextDraw(this.trace?.rows ?? [], this.selectedSeq); }
   invalidate(): void { if (this.open) this.stale = true; this.cursorLine = null; this.presented = null; }
   close(): void {
+    this.exitLine = this.linkedLine;
+    this.navigation++;
     this.open = false; this.trace = null; this.selectedSeq = null; this.presented = null;
     this.page = 0; this.stale = false; this.cursorLine = null;
   }

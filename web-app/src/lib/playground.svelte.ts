@@ -564,6 +564,7 @@ export class Playground {
       this.renderFrame(this.time);
     } else {
       this.pause(false);
+      this.inspection.exitLine = null;
       this.inspection.open = true;
       this.run();
     }
@@ -844,6 +845,7 @@ export class Playground {
 
   /** Debounced re-render after an edit. Edits always apply; there is no gate. */
   scheduleRun(): void {
+    this.inspection.exitLine = null;
     clearTimeout(this.#debounce);
     this.#debounce = setTimeout(() => this.run(), 300);
   }
