@@ -17,6 +17,11 @@
     <dt>Projection</dt><dd>{matrixSummary(snapshot.projection)}</dd>
   </dl>
   <details>
+    <summary>Words for {row.seq} · {row.words.length - 1} continuation(s)</summary>
+    <p>PC: <code>{row.pc}</code></p>
+    {#each row.words as word}<p><code>{word.pc}: {word.w0} {word.w1}</code> · address {word.w1Addr} · line {word.line ?? "unmapped"}</p>{/each}
+  </details>
+  <details>
     <summary>Matrices and viewport</summary>
     {#each [["Modelview", snapshot.modelview], ["Projection", snapshot.projection]] as [name, matrix]}
       <h4>{name}</h4><pre>{(matrix as number[][]).map(row => row.join("  ")).join("\n")}</pre>

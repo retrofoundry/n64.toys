@@ -18,7 +18,12 @@
       await tick();
       const row = list?.querySelector<HTMLButtonElement>('.inspection-row[aria-pressed="true"]');
       row?.focus({ preventScroll: true });
-      row?.scrollIntoView?.({ block: "nearest" });
+      const scroller = row?.closest<HTMLElement>(".inspection-rows");
+      if (row && scroller) {
+        const top = row.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+        if (top < 0) scroller.scrollTop += top;
+        else if (top + row.offsetHeight > scroller.clientHeight) scroller.scrollTop += top + row.offsetHeight - scroller.clientHeight;
+      }
     }
   }
 </script>
@@ -35,28 +40,17 @@
       {#if trace}
         <p class="p-3 text-xs">{trace.microcode} · {trace.time.toFixed(3)}s · {trace.dispatched} commands · {trace.termination === "end" ? "end" : `partial: ${trace.termination}`}</p>
         {#if trace.error}<p class="px-3 text-n64-red text-xs" role="alert">{trace.error}</p>{/if}
-        <div class="flex flex-wrap gap-2 px-3 pb-3">
-          <button type="button" class="ui-button" disabled={inspection.stale || inspection.step(-1) === null} onclick={() => pg.stepCommand(-1)}>Previous command</button>
-          <button type="button" class="ui-button" disabled={inspection.stale || inspection.step(1) === null} onclick={() => pg.stepCommand(1)}>Next command</button>
-          <button type="button" class="ui-button" disabled={inspection.stale || inspection.nextDraw() === null} onclick={() => pg.nextDrawCommand()}>Next draw</button>
-        </div>
         <div class="inspection-rows">
-          <div style="min-width: 470px">
-            <div class="inspection-row text-ink-dim" aria-hidden="true"><span>seq</span><span>pc</span><span>line</span><span>source</span><span>mnemonic</span><span>draws</span></div>
+          <div>
+            <div class="inspection-row text-ink-dim" aria-hidden="true"><span>seq</span><span>line</span><span>source</span><span>mnemonic</span><span>draws</span></div>
             {#each pageRows(trace.rows, inspection.page) as row (row.seq)}
               <button type="button" class:source-match={!inspection.stale && row.line !== null && row.line === inspection.cursorLine}
                 class="inspection-row" onkeydown={keydown} aria-label={`Command ${row.seq}, ${row.decoded.mnemonic}, line ${row.line ?? "unknown"}`}
                 aria-pressed={row.seq === inspection.selectedSeq} disabled={inspection.stale} onclick={() => pg.selectCommand(row.seq)}>
-                <span>{row.seq}</span><code>{row.pc}</code><span>{row.line ?? "—"}</span>
+                <span>{row.seq}</span><span>{row.line ?? "—"}</span>
                 <span class="truncate" style={`padding-left:${Math.min(row.depthBefore, 12) * 8}px`} title={`depth ${row.depthBefore}: ${sources.get(row.line ?? 0) ?? "unmapped"}`}>{sources.get(row.line ?? 0) ?? "unmapped"}</span>
                 <span>{row.decoded.mnemonic}</span><span>{emittedCount(row)}</span>
               </button>
-              {#if row.words.length > 1}
-              <details class="px-3 text-[10px]">
-                <summary>Words for {row.seq} · {row.words.length - 1} continuation(s)</summary>
-                {#each row.words as word}<p><code>{word.pc}: {word.w0} {word.w1}</code> · address {word.w1Addr} · line {word.line ?? "unmapped"}</p>{/each}
-              </details>
-              {/if}
             {/each}
           </div>
         </div>

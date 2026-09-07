@@ -6,8 +6,8 @@
   let { pg, canvas = $bindable() }: { pg: Playground; canvas?: HTMLCanvasElement } = $props();
 </script>
 
-<Panel title="viewport">
-  <div class="flex aspect-[4/3] items-center justify-center bg-[#050605]">
+<Panel title={pg.inspection.open ? undefined : "viewport"}>
+  <div class="viewport-image flex aspect-[4/3] items-center justify-center bg-[#050605]">
     {#if pg.rendererState === "unsupported"}
       <div class="max-w-sm p-6 text-center text-sm text-ink-dim">
         <p class="mb-2 text-ink">n64.toys renders with <strong>WebGPU</strong>.</p>
@@ -38,5 +38,5 @@
       ></canvas>
     {/if}
   </div>
-  <PlayerBar {pg} {canvas} />
+  {#if !pg.inspection.open}<PlayerBar {pg} {canvas} />{/if}
 </Panel>

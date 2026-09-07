@@ -2,6 +2,7 @@
 
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { tick } from "svelte";
 import { Playground } from "./playground.svelte";
 
 const components = vi.hoisted(() => ({
@@ -62,6 +63,17 @@ describe("EditorPage", () => {
       screen.getByTestId("diagnostics"),
       screen.getByTestId("settings"),
     ]);
+  });
+
+  it("pins the dock above the workspace as its sibling", async () => {
+    const pg = new Playground();
+    const { container } = render(EditorPage, { pg, saveController });
+    pg.toggleInspection();
+    await tick();
+    const dock = screen.getByRole("region", { name: "Frame stepping" });
+    expect(dock.nextElementSibling).toBe(container.querySelector(".editor-workspace"));
+    expect(dock).toContainElement(screen.getByTestId("viewport"));
+    expect(dock).not.toContainElement(screen.getByTestId("inspector"));
   });
 
   it("returns to browse", async () => {

@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/svelte";
 import { expect, it, vi } from "vitest";
 import { Playground } from "./playground.svelte";
 import DisplayListInspector from "./DisplayListInspector.svelte";
+import StepDock from "./StepDock.svelte";
 import PlayerBar from "./PlayerBar.svelte";
 import { inspectionTrace } from "./test/inspection";
 
@@ -10,6 +11,7 @@ it("starts collapsed and has a toggle even for static toys", async () => {
   const pg = new Playground();
   render(PlayerBar, {pg});
   render(DisplayListInspector, {pg});
+  render(StepDock, {pg});
   expect(screen.queryByRole("button", {name:"Next command"})).not.toBeInTheDocument();
   expect(screen.queryByRole("button", {name:"Play"})).not.toBeInTheDocument();
   const toggle = screen.getByRole("button", {name:"Display list"});
@@ -31,6 +33,7 @@ it("pages commands, selects with arrows, links repeated rows and expands raw con
   pg.inspection.open = true;
   pg.inspection.capture(trace);
   render(DisplayListInspector, {pg});
+  render(StepDock, {pg});
   expect(screen.getAllByRole("button", {name:/^Command /})).toHaveLength(100);
   await fireEvent.click(screen.getByRole("button", {name:"Next page"}));
   expect(screen.getByText("Page 2 / 3")).toBeInTheDocument();
@@ -64,6 +67,7 @@ it("shows partial traces, emissions and terminal diagnostics, and disables stale
   pg.inspection.open = true;
   pg.inspection.capture(trace);
   render(DisplayListInspector, {pg});
+  render(StepDock, {pg});
   await fireEvent.click(screen.getByRole("button", {name:"Next draw"}));
   expect(screen.getByText(/partial: cap/)).toBeInTheDocument();
   expect(screen.getByText(/Terminal diagnostic: missing render mode/)).toBeInTheDocument();
