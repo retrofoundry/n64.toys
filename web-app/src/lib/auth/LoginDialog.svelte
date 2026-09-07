@@ -56,7 +56,7 @@
           onclick={startLogin}
           class="ui-button ui-button-primary"
         >
-          {submitting ? "Connecting…" : "Sign in with GitHub"}
+          {submitting ? "Connecting…" : "Continue with GitHub"}
         </button>
       </div>
     </Dialog.Content>
