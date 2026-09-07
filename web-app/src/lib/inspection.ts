@@ -29,7 +29,15 @@ export type InspectionRow = {
 export type TraceDiagnostic = Diagnostic & { pc: Hex | null; seq: number | null };
 export type Trace = {
   version: 1; time: number; microcode: string; entry: Hex | null;
-  termination: "end" | "bounds" | "runaway" | "stopped" | "cap";
+  termination:
+    | "end"
+    | "bounds"
+    | "runaway"
+    | "stopped"
+    | "cap"
+    | "memory-read"
+    | "rejected"
+    | "unknown";
   dispatched: number; rows: InspectionRow[]; states: InspectionState[];
   sourceLines: { line: number; text: string }[]; diags: TraceDiagnostic[]; error: string | null;
 };

@@ -354,7 +354,9 @@ fn termination(value: WalkTermination) -> &'static str {
         WalkTermination::Runaway => "runaway",
         WalkTermination::ObserverStopped => "stopped",
         WalkTermination::Cap => "cap",
-        _ => "stopped",
+        WalkTermination::MemoryRead => "memory-read",
+        WalkTermination::Rejected => "rejected",
+        _ => "unknown",
     }
 }
 struct Collector<'a> {
