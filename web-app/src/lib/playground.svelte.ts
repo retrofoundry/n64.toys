@@ -345,6 +345,7 @@ export class Playground {
 
   #renderCurrentSnapshot(t: number): RenderResult | null {
     if (!this.#renderer) return null;
+    this.inspection.presented = null;
     const snapshot = Object.freeze({
       source: this.source,
       textures: this.#renderTextures,
@@ -552,7 +553,8 @@ export class Playground {
       ? { version: 1, time: inputs.time, microcode: inputs.microcode, entry: null, termination: "stopped", dispatched: 0, rows: [], states: [], sourceLines: [], diags: [], error: this.textureLimitError } as Trace
       : inspect(inputs.source, inputs.time, inputs.textures, inputs.microcode) as Trace;
     this.inspection.capture(trace);
-    if (this.inspection.selectedSeq !== null) this.selectCommand(this.inspection.selectedSeq, false);
+    const seq = this.inspection.selectedSeq ?? trace.rows.at(-1)?.seq;
+    if (seq !== undefined) this.selectCommand(seq, false);
   }
 
   toggleInspection(): void {
@@ -562,6 +564,7 @@ export class Playground {
       this.renderFrame(this.time);
     } else {
       this.pause(false);
+      this.inspection.exitLine = null;
       this.inspection.open = true;
       this.run();
     }
@@ -574,6 +577,7 @@ export class Playground {
     const result = this.#renderer.render_prefix(
       inputs.source, inputs.time, inputs.textures, inputs.microcode, seq + 1,
     ) as RenderResult | null;
+    this.inspection.presented = result?.presented ?? false;
     this.#applyRenderResult(result);
   }
 
@@ -587,9 +591,13 @@ export class Playground {
     if (seq !== null) this.selectCommand(seq);
   }
 
+  renderToEnd(): void {
+    const seq = this.inspection.trace?.rows.at(-1)?.seq;
+    if (seq !== undefined) this.selectCommand(seq);
+  }
+
   inspectSourceLine(line: number): void {
-    const seq = this.inspection.selectLine(line);
-    if (seq !== null) this.selectCommand(seq, false);
+    this.inspection.browseLine(line);
   }
 
   inspectDiagnostic(diagnostic: Diagnostic): void {
@@ -837,6 +845,7 @@ export class Playground {
 
   /** Debounced re-render after an edit. Edits always apply; there is no gate. */
   scheduleRun(): void {
+    this.inspection.exitLine = null;
     clearTimeout(this.#debounce);
     this.#debounce = setTimeout(() => this.run(), 300);
   }

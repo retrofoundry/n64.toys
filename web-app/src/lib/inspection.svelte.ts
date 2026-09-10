@@ -6,7 +6,9 @@ export class Inspection {
   selectedSeq = $state<number | null>(null);
   page = $state(0);
   stale = $state(false);
+  presented = $state<boolean | null>(null);
   cursorLine = $state<number | null>(null);
+  exitLine = $state<number | null>(null);
   navigation = $state(0);
 
   get selected(): InspectionRow | undefined {
@@ -17,6 +19,7 @@ export class Inspection {
   }
   capture(trace: Trace): void {
     this.trace = trace;
+    this.presented = null;
     this.stale = false;
     if (!trace.rows.some(row => row.seq === this.selectedSeq)) this.selectedSeq = null;
     this.page = Math.min(this.page, pageCount(trace.rows.length) - 1);
@@ -25,6 +28,7 @@ export class Inspection {
   select(seq: number, navigate = true): boolean {
     if (!this.open || this.stale || !this.trace?.rows.some(row => row.seq === seq)) return false;
     this.selectedSeq = seq;
+    this.presented = null;
     this.page = Math.floor(seq / PAGE_SIZE);
     if (navigate) {
       this.cursorLine = this.selected?.line ?? null;
@@ -32,13 +36,9 @@ export class Inspection {
     }
     return true;
   }
-  selectLine(line: number): number | null {
-    if (!this.open || this.stale) return null;
+  browseLine(line: number): void {
+    if (!this.open || this.stale) return;
     this.cursorLine = line;
-    const rows = this.trace?.rows.filter(row => row.line === line) ?? [];
-    if (!rows.some(row => row.seq === this.selectedSeq)) this.selectedSeq = rows[0]?.seq ?? null;
-    if (this.selectedSeq !== null) this.select(this.selectedSeq, false);
-    return this.selectedSeq;
   }
   step(delta: number): number | null {
     const rows = this.trace?.rows ?? [];
@@ -47,9 +47,11 @@ export class Inspection {
     return row?.seq ?? null;
   }
   nextDraw(): number | null { return nextDraw(this.trace?.rows ?? [], this.selectedSeq); }
-  invalidate(): void { if (this.open) this.stale = true; this.cursorLine = null; }
+  invalidate(): void { if (this.open) this.stale = true; this.cursorLine = null; this.presented = null; }
   close(): void {
-    this.open = false; this.trace = null; this.selectedSeq = null;
+    this.exitLine = this.linkedLine;
+    this.navigation++;
+    this.open = false; this.trace = null; this.selectedSeq = null; this.presented = null;
     this.page = 0; this.stale = false; this.cursorLine = null;
   }
 }

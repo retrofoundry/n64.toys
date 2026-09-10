@@ -83,23 +83,24 @@ button, a { outline-color: var(--color-n64-blue); }
 .editor-workspace {
   display: grid;
   gap: 14px;
-  grid-template-areas: "back" "viewport" "inspector" "source" "meta" "textures" "diagnostics" "settings";
+  grid-template-areas: "back" "viewport" "source" "meta" "textures" "diagnostics" "settings";
 }
 .editor-back { grid-area: back; }
 .editor-viewport { grid-area: viewport; min-width: 0; }
-.editor-inspector { grid-area: inspector; min-width: 0; }
 .editor-source { grid-area: source; min-width: 0; }
 .editor-meta { grid-area: meta; }
 .editor-textures { grid-area: textures; min-width: 0; }
 .editor-diagnostics { grid-area: diagnostics; }
 .editor-settings { grid-area: settings; }
+@media (max-width: 1023px) {
+  .editor-workspace.stepping .viewport-image { aspect-ratio: auto; height: 38dvh; }
+}
 @media (min-width: 1024px) {
   .editor-workspace {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
     grid-template-areas:
       "back back"
       "viewport source"
-      "inspector source"
       "textures source"
       "meta settings"
       "diagnostics settings";
@@ -107,11 +108,31 @@ button, a { outline-color: var(--color-n64-blue); }
   }
 }
 
+.inspection-presentation { flex: none; font-size: 11px; color: var(--color-n64-yellow); }
+.inspection-frame { color: var(--color-ink-faint); font-size: 10px; }
+.inspection-current { min-width: 0; display: flex; flex-direction: column; gap: .5rem; padding: .75rem; border-bottom: 1px solid var(--color-edge); }
+.inspection-command { font-size: 12px; font-weight: bold; overflow-wrap: anywhere; }
+.inspection-controls { display: flex; flex-wrap: wrap; gap: .4rem; }
+.inspection-toggle { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; width: fit-content; font-size: 11px; }
+.inspection-toggle[aria-pressed="true"] { border-color: var(--color-n64-blue); background: color-mix(in srgb, var(--color-n64-blue) 20%, var(--color-panel)); }
+.inspection-exit { border-left: 1px solid var(--color-edge); padding-left: .5rem; }
+.inspection-controls .ui-button { font-size: 11px; }
+.inspection-summary { font-size: 10px; color: var(--color-ink-dim); overflow-wrap: anywhere; max-height: 3em; overflow: auto; }
+@media (min-width: 1024px) {
+}
+@media (min-width: 1280px) {
+  .inspection-summary { max-height: none; }
+}
+
 .cm-inspection-line { background: color-mix(in srgb, var(--color-n64-blue) 20%, transparent); box-shadow: inset 3px 0 var(--color-n64-blue); }
-.inspection-rows { max-height: 24rem; overflow: auto; }
-.inspection-row { display: grid; grid-template-columns: 2.5rem 6rem 2.5rem minmax(6rem, 1fr) 7rem 2rem; gap: .4rem; width: 100%; padding: .4rem .5rem; text-align: left; font-size: 10px; border-bottom: 1px solid var(--color-edge); }
+.inspection-rows { max-height: 22rem; overflow: auto; }
+.inspection-row { display: grid; grid-template-columns: 3.5rem 2rem minmax(0, 1fr) minmax(0, 7rem) 2rem; gap: .4rem; width: 100%; padding: .4rem .5rem; text-align: left; font-size: 10px; border-bottom: 1px solid var(--color-edge); }
 .inspection-row[aria-pressed="true"] { background: color-mix(in srgb, var(--color-n64-blue) 24%, var(--color-panel)); }
-.inspection-row.source-match { box-shadow: inset 3px 0 var(--color-n64-yellow); }
+.inspection-row.source-match { box-shadow: inset 2px 0 var(--color-ink-faint); }
+.inspection-position { display: flex; justify-content: flex-end; gap: .25rem; }
+.inspection-marker { color: var(--color-n64-blue); font-weight: bold; }
+.cm-inspection-gutter .inspection-marker { padding: 0 .25rem; }
+.inspection-mnemonic { overflow-wrap: anywhere; }
 .inspection-row:focus-visible { outline: 2px solid var(--color-n64-blue); outline-offset: -2px; }
 .inspection-details { padding: .75rem; font-size: 11px; overflow-wrap: anywhere; }
 .inspection-details details { margin-top: .6rem; }

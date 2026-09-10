@@ -1259,6 +1259,47 @@ describe("display list inspection", () => {
     } finally { pg.teardown(); }
   });
 
+  it("opens at the last captured command and renders to the end from an earlier prefix", async () => {
+    const pg = await playground();
+    try {
+      pg.toggleInspection();
+      expect(pg.inspection.selectedSeq).toBe(9);
+      expect(wasm.render_prefix.mock.lastCall?.[4]).toBe(10);
+      pg.selectCommand(1);
+      wasm.render.mockClear();
+      const captures = wasm.inspect.mock.calls.length;
+      pg.renderToEnd();
+      expect(pg.inspection.selectedSeq).toBe(9);
+      expect(pg.inspection.open).toBe(true);
+      expect(wasm.render_prefix.mock.lastCall?.[4]).toBe(10);
+      expect(wasm.render).not.toHaveBeenCalled();
+      expect(wasm.inspect).toHaveBeenCalledTimes(captures);
+    } finally { pg.teardown(); }
+  });
+
+  it("tracks prefix presentation and clears it when the selected image no longer applies", async () => {
+    const pg = await playground();
+    try {
+      pg.toggleInspection();
+      wasm.render_prefix.mockReturnValueOnce({ presented: false, diags: [], error: null });
+      pg.selectCommand(1);
+      expect(pg.inspection.presented).toBe(false);
+      pg.inspectSourceLine(27);
+      expect(pg.inspection.presented).toBe(false);
+      wasm.render_prefix.mockReturnValueOnce({ presented: true, diags: [], error: null });
+      pg.selectCommand(8);
+      expect(pg.inspection.presented).toBe(true);
+      pg.renderForCapture();
+      expect(pg.inspection.presented).toBeNull();
+      wasm.render_prefix.mockReturnValueOnce({ presented: true, diags: [], error: null });
+      pg.selectCommand(8);
+      pg.inspection.invalidate();
+      expect(pg.inspection.presented).toBeNull();
+      pg.toggleInspection();
+      expect(pg.inspection.presented).toBeNull();
+    } finally { pg.teardown(); }
+  });
+
   it("invalidates on edits and play, refreshes on debounce, run, seek and pause", async () => {
     vi.useFakeTimers();
     const pg = await playground();
@@ -1302,12 +1343,21 @@ describe("display list inspection", () => {
       expect(pg.inspection.open).toBe(true);
       expect(pg.inspection.selectedSeq).toBe(8);
       pg.selectCommand(5);
+      wasm.render.mockClear();
+      wasm.render_prefix.mockClear();
+      const navigation = pg.inspection.navigation;
       pg.inspectSourceLine(20);
       expect(pg.inspection.selectedSeq).toBe(5);
       pg.inspectSourceLine(21);
-      expect(pg.inspection.selectedSeq).toBe(2);
+      expect(pg.inspection.selectedSeq).toBe(5);
+      expect(pg.inspection.cursorLine).toBe(21);
       pg.inspectSourceLine(999);
-      expect(pg.inspection.selectedSeq).toBeNull();
+      expect(pg.inspection.selectedSeq).toBe(5);
+      expect(pg.inspection.cursorLine).toBe(999);
+      expect(pg.inspection.linkedLine).toBe(20);
+      expect(pg.inspection.navigation).toBe(navigation);
+      expect(wasm.render).not.toHaveBeenCalled();
+      expect(wasm.render_prefix).not.toHaveBeenCalled();
       expect(wasm.inspect).toHaveBeenCalledTimes(1);
     } finally { pg.teardown(); }
   });

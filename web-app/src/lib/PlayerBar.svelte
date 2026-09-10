@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Play, Pause, RotateCcw, Maximize } from "@lucide/svelte";
+  import { Play, Pause, RotateCcw, Maximize, StepForward } from "@lucide/svelte";
   import type { Playground } from "./playground.svelte";
 
   let { pg, canvas }: { pg: Playground; canvas?: HTMLCanvasElement } = $props();
@@ -21,32 +21,32 @@
       aria-label="Fullscreen"
       class="ui-button flex min-h-8 items-center justify-center"
     ><Maximize size={15} strokeWidth={2} /></button>
-    <button type="button" class="ui-button flex min-h-8 items-center justify-center"
-      aria-label="Display list" aria-pressed={pg.inspection.open}
-      onclick={() => pg.toggleInspection()}>Display list</button>
+    <button type="button" class="ui-button inspection-toggle flex min-h-8 items-center justify-center gap-1.5"
+      aria-label="Step through frame" aria-pressed={pg.inspection.open}
+      onclick={() => pg.toggleInspection()}><StepForward size={15} strokeWidth={2} /> Step through frame</button>
   </div>
 
   {#if pg.isAnimated}
     <div class="flex items-center gap-3 px-3.5 py-2.5 border-t border-edge">
       {#if pg.playing}
         <button type="button" onclick={() => pg.pause()} title="Pause" aria-label="Pause"
-          disabled={!pg.hasRenderer}
+          disabled={!pg.hasRenderer || pg.inspection.open}
           class="ui-button flex min-h-8 items-center justify-center">
           <Pause size={15} fill="currentColor" strokeWidth={0} /></button>
       {:else}
         <button type="button" onclick={() => pg.play()} title="Play" aria-label="Play"
-          disabled={!pg.hasRenderer}
+          disabled={!pg.hasRenderer || pg.inspection.open}
           class="ui-button ui-button-primary flex min-h-8 items-center justify-center">
           <Play size={15} fill="currentColor" strokeWidth={0} /></button>
       {/if}
       <button type="button" onclick={() => pg.reset()} title="Reset" aria-label="Reset"
-        disabled={!pg.hasRenderer}
+        disabled={!pg.hasRenderer || pg.inspection.open}
         class="ui-button flex min-h-8 items-center justify-center">
         <RotateCcw size={15} strokeWidth={2} /></button>
       <input
         class="scrub flex-1"
         type="range" min="0" max={pg.scrubMax} step="0.01" value={pg.time}
-        disabled={!pg.hasRenderer}
+        disabled={!pg.hasRenderer || pg.inspection.open}
         oninput={(e) => pg.seek(parseFloat((e.currentTarget as HTMLInputElement).value))}
         aria-label="Time"
       />

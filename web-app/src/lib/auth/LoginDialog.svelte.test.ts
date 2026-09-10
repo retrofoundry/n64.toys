@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthActions } from "./auth-client";
 import LoginDialog from "./LoginDialog.svelte";
@@ -19,6 +19,13 @@ async function openDialog(authActions: AuthActions) {
   await fireEvent.click(trigger);
   return screen.findByRole("dialog");
 }
+
+afterEach(async () => {
+  // bits-ui restores the body style 24ms after the dialog unmounts. Unmount here
+  // and wait it out, or the timer fires once vitest has torn down the document.
+  cleanup();
+  await new Promise(resolve => setTimeout(resolve, 50));
+});
 
 describe("LoginDialog", () => {
   it("explains the terse GitHub identity boundary in an accessible dialog", async () => {
