@@ -9,7 +9,8 @@ const components = vi.hoisted(() => ({
   editorProps: undefined as { oninput?: () => void } | undefined,
 }));
 
-vi.mock("./DisplayListInspector.svelte", async () => ({ default: (await import("./test/marker")).marker("inspector") }));
+vi.mock("./DebugBar.svelte", async () => ({ default: (await import("./test/marker")).marker("debug-bar") }));
+vi.mock("./DebugPanel.svelte", async () => ({ default: (await import("./test/marker")).marker("debug-panel") }));
 vi.mock("./Viewport.svelte", async () => ({ default: (await import("./test/marker")).marker("viewport") }));
 vi.mock("./Editor.svelte", async () => ({
   default: (await import("./test/marker")).marker("source", props => (components.editorProps = props)),
@@ -40,7 +41,7 @@ describe("EditorPage", () => {
     render(EditorPage, { pg: new Playground(), saveController });
     expect(
       screen.getAllByTestId(
-        /viewport|inspector|source|meta|save-controls|textures|diagnostics|settings/,
+        /viewport|debug|source|meta|save-controls|textures|diagnostics|settings/,
       ),
     ).toEqual([
       screen.getByTestId("viewport"),
@@ -53,23 +54,27 @@ describe("EditorPage", () => {
     ]);
   });
 
-  it("swaps the source column for the stepping panel and leaves the viewport in place", async () => {
+  it("wraps the editor with the debug bar and panel while debugging and leaves the viewport in place", async () => {
     const pg = new Playground();
     render(EditorPage, { pg, saveController });
-    expect(screen.getByTestId("source")).toBeInTheDocument();
-    expect(screen.queryByTestId("inspector")).not.toBeInTheDocument();
+    const source = screen.getByTestId("source");
+    expect(screen.queryByTestId("debug-bar")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("debug-panel")).not.toBeInTheDocument();
     const viewportBefore = screen.getByTestId("viewport").parentElement;
 
     pg.toggleInspection();
     await tick();
-    expect(screen.getByTestId("inspector").parentElement).toHaveClass("editor-source");
-    expect(screen.queryByTestId("source")).not.toBeInTheDocument();
+    const column = screen.getByTestId("source").parentElement!;
+    expect(column).toHaveClass("editor-source");
+    expect([...column.children].map(el => (el as HTMLElement).dataset.testid)).toEqual(["debug-bar", "source", "debug-panel"]);
+    expect(screen.getByTestId("source")).toBe(source);
     expect(screen.getByTestId("viewport").parentElement).toBe(viewportBefore);
 
     pg.toggleInspection();
     await tick();
-    expect(screen.getByTestId("source")).toBeInTheDocument();
-    expect(screen.queryByTestId("inspector")).not.toBeInTheDocument();
+    expect(screen.getByTestId("source")).toBe(source);
+    expect(screen.queryByTestId("debug-bar")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("debug-panel")).not.toBeInTheDocument();
   });
 
   it("returns to browse", async () => {

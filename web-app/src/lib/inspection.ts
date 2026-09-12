@@ -53,6 +53,48 @@ export function emittedCount(row: InspectionRow): number {
 export function nextDraw(rows: InspectionRow[], seq: number | null): number | null {
   return rows.find(row => row.seq > (seq ?? -1) && emittedCount(row) > 0)?.seq ?? null;
 }
+export type StepKind = "over" | "into" | "out";
+type LineRun = { start: number; end: number; line: number | null; depth: number };
+// A source line can expand to several commands (gsDPLoadTextureBlock is seven); line-level stepping
+// treats the contiguous run as one statement and lands on its last command so the whole line has run.
+function lineRuns(rows: InspectionRow[]): LineRun[] {
+  const runs: LineRun[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const last = runs.at(-1);
+    if (last && rows[i].line !== null && rows[i].line === last.line) last.end = i;
+    else runs.push({ start: i, end: i, line: rows[i].line, depth: rows[i].depthBefore });
+  }
+  return runs;
+}
+function runIndexOf(runs: LineRun[], rowIndex: number): number {
+  return runs.findIndex(run => rowIndex >= run.start && rowIndex <= run.end);
+}
+function seek(rows: InspectionRow[], seq: number | null, dir: 1 | -1, accept: (run: LineRun, current: LineRun | null) => boolean): number | null {
+  const runs = lineRuns(rows);
+  const rowIndex = rows.findIndex(row => row.seq === seq);
+  const currentRun = rowIndex < 0 ? -1 : runIndexOf(runs, rowIndex);
+  const current = currentRun < 0 ? null : runs[currentRun];
+  for (let i = currentRun + dir; i >= 0 && i < runs.length; i += dir) {
+    if (accept(runs[i], current)) return rows[runs[i].end].seq;
+  }
+  return null;
+}
+export function stepLine(rows: InspectionRow[], seq: number | null, dir: 1 | -1, kind: StepKind): number | null {
+  return seek(rows, seq, dir, (run, current) => {
+    const depth = current?.depth ?? 0;
+    if (kind === "into") return true;
+    if (kind === "over") return run.depth <= depth;
+    // Out: forwards, stop on the return so the sub-list has fully run; backwards, on the call that entered it.
+    return dir > 0 ? rows[run.end].depthAfter < depth : run.depth < depth;
+  });
+}
+export function continueTo(rows: InspectionRow[], seq: number | null, breakpoints: readonly number[], dir: 1 | -1): number | null {
+  return seek(rows, seq, dir, run => run.line !== null && breakpoints.includes(run.line));
+}
+export function stateChanges(previous: InspectionState | undefined, next: InspectionState): string[] {
+  if (!previous) return [];
+  return (Object.keys(next) as (keyof InspectionState)[]).filter(key => JSON.stringify(previous[key]) !== JSON.stringify(next[key]));
+}
 export function hex(value: number): Hex { return `0x${(value >>> 0).toString(16).toUpperCase().padStart(8, "0")}`; }
 const common = ["COMBINED", "TEXEL0", "TEXEL1", "PRIMITIVE", "SHADE", "ENVIRONMENT"];
 const colorA = [...common, "1", "NOISE"];

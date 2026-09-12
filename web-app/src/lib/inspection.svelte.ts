@@ -1,4 +1,4 @@
-import { PAGE_SIZE, nextDraw, pageCount, type Trace, type InspectionRow } from "./inspection";
+import { PAGE_SIZE, continueTo, nextDraw, pageCount, stepLine, type StepKind, type Trace, type InspectionRow } from "./inspection";
 
 export class Inspection {
   open = $state(false);
@@ -8,7 +8,7 @@ export class Inspection {
   stale = $state(false);
   presented = $state<boolean | null>(null);
   cursorLine = $state<number | null>(null);
-  exitLine = $state<number | null>(null);
+  breakpoints = $state<number[]>([]);
   navigation = $state(0);
 
   get selected(): InspectionRow | undefined {
@@ -47,10 +47,15 @@ export class Inspection {
     return row?.seq ?? null;
   }
   nextDraw(): number | null { return nextDraw(this.trace?.rows ?? [], this.selectedSeq); }
+  stepLine(kind: StepKind, dir: 1 | -1): number | null { return stepLine(this.trace?.rows ?? [], this.selectedSeq, dir, kind); }
+  continueTo(dir: 1 | -1): number | null { return continueTo(this.trace?.rows ?? [], this.selectedSeq, this.breakpoints, dir); }
+  /** Where a fresh run stops: the first breakpoint hit, or the whole frame. */
+  entrySeq(): number | null {
+    const rows = this.trace?.rows ?? [];
+    return continueTo(rows, null, this.breakpoints, 1) ?? rows.at(-1)?.seq ?? null;
+  }
   invalidate(): void { if (this.open) this.stale = true; this.cursorLine = null; this.presented = null; }
   close(): void {
-    this.exitLine = this.linkedLine;
-    this.navigation++;
     this.open = false; this.trace = null; this.selectedSeq = null; this.presented = null;
     this.page = 0; this.stale = false; this.cursorLine = null;
   }

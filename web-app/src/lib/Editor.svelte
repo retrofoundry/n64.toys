@@ -9,6 +9,8 @@
   import { n64Theme } from "./editor/cm-theme";
   import { n64Lint, setDiagsEffect } from "./editor/lint";
   import { n64Inspection, inspectLine } from "./editor/inspection";
+  import { applyBreakpoints, n64Breakpoints } from "./editor/breakpoints";
+  import type { DebugCommand } from "./playground.svelte";
   import Panel from "./ui/Panel.svelte";
   import HelpDrawer from "./HelpDrawer.svelte";
   import type { Diagnostic } from "./playground.svelte";
@@ -20,7 +22,10 @@
     oninput,
     inspectionLine = null,
     inspectionNavigation = 0,
+    breakpoints = [],
     oncursorline = () => {},
+    onbreakpoints = () => {},
+    ondebug = () => {},
   }: {
     value: string;
     diagnostics: Diagnostic[];
@@ -28,7 +33,10 @@
     oninput?: () => void;
     inspectionLine?: number | null;
     inspectionNavigation?: number;
+    breakpoints?: number[];
     oncursorline?: (line: number) => void;
+    onbreakpoints?: (lines: number[]) => void;
+    ondebug?: (command: DebugCommand) => void;
   } = $props();
 
   let host: HTMLDivElement;
@@ -43,6 +51,7 @@
       state: EditorState.create({
         doc: value,
         extensions: [
+          n64Breakpoints(lines => onbreakpoints(lines)),
           lineNumbers(),
           history(),
           highlightActiveLine(),
@@ -54,6 +63,11 @@
           n64Inspection(line => oncursorline(line)),
           keymap.of([
             { key: "Mod-Enter", preventDefault: true, run: () => { onrun(); return true; } },
+            { key: "F5", preventDefault: true, run: () => { ondebug("continue"); return true; } },
+            { key: "Shift-F5", preventDefault: true, run: () => { ondebug("stop"); return true; } },
+            { key: "F10", preventDefault: true, run: () => { ondebug("over"); return true; } },
+            { key: "F11", preventDefault: true, run: () => { ondebug("into"); return true; } },
+            { key: "Shift-F11", preventDefault: true, run: () => { ondebug("out"); return true; } },
             indentWithTab,
             ...defaultKeymap,
             ...historyKeymap,
@@ -67,7 +81,13 @@
         ],
       }),
     });
+    applyBreakpoints(view, breakpoints);
     return () => view?.destroy();
+  });
+
+  $effect(() => {
+    const lines = breakpoints;
+    if (view) applyBreakpoints(view, lines);
   });
 
   $effect(() => {

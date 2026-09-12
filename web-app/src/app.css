@@ -108,24 +108,34 @@ button, a { outline-color: var(--color-n64-blue); }
   }
 }
 
+.editor-source { display: flex; flex-direction: column; gap: 14px; }
 .inspection-presentation { flex: none; font-size: 11px; color: var(--color-n64-yellow); }
-.inspection-frame { color: var(--color-ink-faint); font-size: 10px; }
-.inspection-current { min-width: 0; display: flex; flex-direction: column; gap: .5rem; padding: .75rem; border-bottom: 1px solid var(--color-edge); }
-.inspection-command { font-size: 12px; font-weight: bold; overflow-wrap: anywhere; }
-.inspection-controls { display: flex; flex-wrap: wrap; gap: .4rem; }
 .inspection-toggle { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; width: fit-content; font-size: 11px; }
 .inspection-toggle[aria-pressed="true"] { border-color: var(--color-n64-blue); background: color-mix(in srgb, var(--color-n64-blue) 20%, var(--color-panel)); }
-.inspection-exit { border-left: 1px solid var(--color-edge); padding-left: .5rem; }
-.inspection-controls .ui-button { font-size: 11px; }
-.inspection-summary { font-size: 10px; color: var(--color-ink-dim); overflow-wrap: anywhere; max-height: 3em; overflow: auto; }
-@media (min-width: 1024px) {
-}
-@media (min-width: 1280px) {
-  .inspection-summary { max-height: none; }
-}
+
+.debug-bar { display: flex; flex-direction: column; gap: .4rem; padding: .5rem .75rem; border: 1px solid var(--color-edge); background: var(--color-panel); }
+.debug-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; }
+.debug-button { display: inline-flex; align-items: center; justify-content: center; min-width: 2rem; min-height: 2rem; padding: 0; }
+.debug-text { font-size: 11px; }
+.debug-buttons .debug-button:nth-child(3) { margin-left: .5rem; }
+.debug-buttons .debug-button:nth-child(7) { margin-left: .5rem; }
+.debug-buttons .debug-text:first-of-type { margin-left: auto; }
+.debug-status { font-size: 12px; font-weight: bold; overflow-wrap: anywhere; }
+.debug-tabs { display: flex; border-bottom: 1px solid var(--color-edge); }
+.debug-tab { padding: .45rem .8rem; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--color-ink-dim); border-bottom: 2px solid transparent; }
+.debug-tab[aria-selected="true"] { color: var(--color-ink); border-bottom-color: var(--color-n64-blue); }
+.debug-body { max-height: 26rem; overflow: auto; }
+.editor-workspace.stepping .cm-editor { min-height: 260px; max-height: 42vh; }
+.cm-breakpoint-gutter .cm-gutterElement { width: 1rem; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.cm-breakpoint-gutter .cm-gutterElement:hover { background: color-mix(in srgb, var(--color-n64-red) 25%, transparent); }
+.cm-breakpoint { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; background: var(--color-n64-red); }
+.inspection-row.breakpoint .inspection-position::before { content: ""; width: .45rem; height: .45rem; border-radius: 50%; background: var(--color-n64-red); align-self: center; }
+.breakpoint-list li { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: center; gap: .5rem; padding: .3rem 0; border-bottom: 1px solid var(--color-edge); }
+.inspection-details .changed { color: var(--color-n64-yellow); }
+.inspection-details .changed-keys { color: var(--color-n64-yellow); }
 
 .cm-inspection-line { background: color-mix(in srgb, var(--color-n64-blue) 20%, transparent); box-shadow: inset 3px 0 var(--color-n64-blue); }
-.inspection-rows { max-height: 22rem; overflow: auto; }
+.inspection-rows { max-height: 20rem; overflow: auto; }
 .inspection-row { display: grid; grid-template-columns: 3.5rem 2rem minmax(0, 1fr) minmax(0, 7rem) 2rem; gap: .4rem; width: 100%; padding: .4rem .5rem; text-align: left; font-size: 10px; border-bottom: 1px solid var(--color-edge); }
 .inspection-row[aria-pressed="true"] { background: color-mix(in srgb, var(--color-n64-blue) 24%, var(--color-panel)); }
 .inspection-row.source-match { box-shadow: inset 2px 0 var(--color-ink-faint); }
