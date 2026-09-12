@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Playground } from "./playground.svelte";
-  import DisplayListInspector from "./DisplayListInspector.svelte";
+  import DebugBar from "./DebugBar.svelte";
+  import DebugPanel from "./DebugPanel.svelte";
   import Viewport from "./Viewport.svelte";
   import Editor from "./Editor.svelte";
   import ToyMeta from "./ToyMeta.svelte";
@@ -35,21 +36,22 @@
     >
     <div class="editor-viewport"><Viewport {pg} bind:canvas /></div>
     <div class="editor-source">
-      {#if pg.inspection.open}
-        <DisplayListInspector {pg} />
-      {:else}
-        <Editor
-          bind:value={pg.source}
-          diagnostics={pg.diags}
-          inspectionLine={pg.inspection.exitLine}
-          inspectionNavigation={pg.inspection.navigation}
-          oncursorline={(line) => pg.inspectSourceLine(line)}
-          onrun={() => pg.run()}
-          oninput={() => {
-            pg.scheduleRun();
-          }}
-        />
-      {/if}
+      {#if pg.inspection.open}<DebugBar {pg} />{/if}
+      <Editor
+        bind:value={pg.source}
+        diagnostics={pg.diags}
+        inspectionLine={pg.inspection.linkedLine}
+        inspectionNavigation={pg.inspection.navigation}
+        breakpoints={pg.inspection.breakpoints}
+        onbreakpoints={(lines) => pg.setBreakpoints(lines)}
+        ondebug={(command) => pg.debugCommand(command)}
+        oncursorline={(line) => pg.inspectSourceLine(line)}
+        onrun={() => pg.run()}
+        oninput={() => {
+          pg.scheduleRun();
+        }}
+      />
+      {#if pg.inspection.open}<DebugPanel {pg} />{/if}
     </div>
     <div class="editor-meta">
       <ToyMeta bind:title={pg.title} bind:description={pg.description} />

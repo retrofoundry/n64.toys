@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { combineCycleActive, combineFormula, emittedCount, geometryNames, hex, nextDraw, otherModeFields, pageCount, pageRows, renderModePreset } from "./inspection";
+import { combineCycleActive, combineFormula, emittedCount, geometryNames, hex, nextDraw, otherModeFields, pageCount, pageRows, renderModePreset, continueTo, stateChanges, stepLine } from "./inspection";
 import { Inspection } from "./inspection.svelte";
 import { inspectionTrace } from "./test/inspection";
 
@@ -78,19 +78,47 @@ describe("inspection selection", () => {
     expect(inspection.trace).toBeNull();
     expect(inspection.selectedSeq).toBeNull();
   });
-  it("leaves the editor on the command it exited from, and nowhere after a stale exit", () => {
+  it("steps by line, over and out of sub-lists, and continues between breakpoints in both directions", () => {
+    const trace = inspectionTrace(10);
+    for (const seq of [2, 3, 4]) trace.rows[seq].line = 21;
+    Object.assign(trace.rows[5], { line: 22, flow: "call", depthBefore: 0, depthAfter: 1 });
+    Object.assign(trace.rows[6], { line: 40, depthBefore: 1, depthAfter: 1 });
+    Object.assign(trace.rows[7], { line: 41, depthBefore: 1, depthAfter: 1 });
+    Object.assign(trace.rows[8], { line: 42, flow: "return", depthBefore: 1, depthAfter: 0 });
+    trace.rows[9].line = 23;
+    const rows = trace.rows;
+    expect(stepLine(rows, null, 1, "into")).toBe(0);
+    expect(stepLine(rows, 1, 1, "into")).toBe(4);
+    expect(stepLine(rows, 4, 1, "over")).toBe(5);
+    expect(stepLine(rows, 5, 1, "over")).toBe(9);
+    expect(stepLine(rows, 5, 1, "into")).toBe(6);
+    expect(stepLine(rows, 6, 1, "out")).toBe(8);
+    expect(stepLine(rows, 8, 1, "over")).toBe(9);
+    expect(stepLine(rows, 9, 1, "over")).toBeNull();
+    expect(stepLine(rows, 4, 1, "out")).toBeNull();
+    expect(stepLine(rows, 9, -1, "over")).toBe(5);
+    expect(stepLine(rows, 9, -1, "into")).toBe(8);
+    expect(stepLine(rows, 7, -1, "out")).toBe(5);
+    expect(stepLine(rows, 0, -1, "into")).toBeNull();
+    expect(continueTo(rows, null, [21, 40], 1)).toBe(4);
+    expect(continueTo(rows, 4, [21, 40], 1)).toBe(6);
+    expect(continueTo(rows, 6, [21, 40], 1)).toBeNull();
+    expect(continueTo(rows, 6, [21, 40], -1)).toBe(4);
+    expect(continueTo(rows, 9, [], 1)).toBeNull();
     const inspection = new Inspection();
     inspection.open = true;
-    inspection.capture(inspectionTrace());
-    inspection.select(8);
-    inspection.close();
-    expect(inspection.exitLine).toBe(27);
-    inspection.open = true;
-    inspection.capture(inspectionTrace());
-    inspection.select(8);
-    inspection.invalidate();
-    inspection.close();
-    expect(inspection.exitLine).toBeNull();
+    inspection.capture(trace);
+    inspection.breakpoints = [40];
+    expect(inspection.entrySeq()).toBe(6);
+    inspection.breakpoints = [];
+    expect(inspection.entrySeq()).toBe(9);
+  });
+  it("names the state fields a command changed", () => {
+    const [snapshot] = inspectionTrace().states;
+    const next = { ...snapshot, geometryMode: "0x00000001", texture: { ...snapshot.texture, on: true } };
+    expect(stateChanges(snapshot, next)).toEqual(["geometryMode", "texture"]);
+    expect(stateChanges(snapshot, snapshot)).toEqual([]);
+    expect(stateChanges(undefined, next)).toEqual([]);
   });
 });
 

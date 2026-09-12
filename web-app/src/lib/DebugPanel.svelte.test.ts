@@ -3,27 +3,30 @@ import { fireEvent, render, screen } from "@testing-library/svelte";
 import { expect, it, vi } from "vitest";
 import { tick } from "svelte";
 import { Playground } from "./playground.svelte";
-import DisplayListInspector from "./DisplayListInspector.svelte";
+import DebugBar from "./DebugBar.svelte";
+import DebugPanel from "./DebugPanel.svelte";
 import PlayerBar from "./PlayerBar.svelte";
 import { inspectionTrace } from "./test/inspection";
 
-it("starts collapsed and has a toggle even for static toys", async () => {
+it("starts idle with a Debug frame toggle even for static toys, and Stop ends the session", async () => {
   const pg = new Playground();
   render(PlayerBar, {pg});
-  expect(screen.queryByRole("button", {name:"Step forward"})).not.toBeInTheDocument();
+  expect(screen.queryByRole("toolbar", {name:"Debug frame"})).not.toBeInTheDocument();
   expect(screen.queryByRole("button", {name:"Play"})).not.toBeInTheDocument();
-  const toggle = screen.getByRole("button", {name:"Step through frame"});
+  const toggle = screen.getByRole("button", {name:"Debug frame"});
   await fireEvent.click(toggle);
   expect(pg.inspection.open).toBe(true);
   expect(toggle).toHaveAttribute("aria-pressed","true");
-  render(DisplayListInspector, {pg});
-  expect(screen.getByRole("group", {name:"Frame stepping"})).toBeInTheDocument();
-  await fireEvent.click(screen.getByRole("button", {name:"Exit"}));
+  render(DebugBar, {pg});
+  render(DebugPanel, {pg});
+  expect(screen.getByRole("toolbar", {name:"Debug frame"})).toBeInTheDocument();
+  expect(screen.getByRole("tab", {name:"State"})).toHaveAttribute("aria-selected", "true");
+  await fireEvent.click(screen.getByRole("button", {name:"Stop"}));
   expect(pg.inspection.trace).toBeNull();
   expect(toggle).toHaveAttribute("aria-pressed","false");
 });
 
-it("keeps the player bar in place while stepping but freezes its time controls", async () => {
+it("keeps the player bar in place while debugging but freezes its time controls", async () => {
   vi.spyOn(Playground.prototype, "hasRenderer", "get").mockReturnValue(true);
   const pg = new Playground();
   pg.isAnimated = true;
@@ -31,13 +34,13 @@ it("keeps the player bar in place while stepping but freezes its time controls",
   expect(screen.getByRole("slider", {name:"Time"})).toBeEnabled();
   pg.inspection.open = true;
   await tick();
-  expect(screen.getByRole("button", {name:"Step through frame"})).toHaveAttribute("aria-pressed","true");
+  expect(screen.getByRole("button", {name:"Debug frame"})).toHaveAttribute("aria-pressed","true");
   expect(screen.getByRole("slider", {name:"Time"})).toBeDisabled();
   expect(screen.getByRole("button", {name:"Play"})).toBeDisabled();
   expect(screen.getByRole("button", {name:"Reset"})).toBeDisabled();
 });
 
-it("pages commands, selects with arrows, links repeated rows and expands raw continuations", async () => {
+it("pages commands, selects with arrows, links repeated rows and shows state with raw continuations", async () => {
   const pg = new Playground();
   const trace = inspectionTrace(205);
   trace.rows[101].line = 20;
@@ -45,7 +48,8 @@ it("pages commands, selects with arrows, links repeated rows and expands raw con
   trace.rows[8].words.push({...trace.rows[8].words[0],pc:"0x00000200"});
   pg.inspection.open = true;
   pg.inspection.capture(trace);
-  render(DisplayListInspector, {pg});
+  render(DebugPanel, {pg});
+  await fireEvent.click(screen.getByRole("tab", {name:"Commands"}));
   expect(screen.getAllByRole("button", {name:/^Command /})).toHaveLength(100);
   await fireEvent.click(screen.getByRole("button", {name:"Next page"}));
   expect(screen.getByText("Page 2 / 3")).toBeInTheDocument();
@@ -54,7 +58,6 @@ it("pages commands, selects with arrows, links repeated rows and expands raw con
   expect(row).toHaveAttribute("aria-pressed","true");
   expect(row.querySelector(".inspection-marker")).toHaveTextContent("→");
   expect(row.querySelector(".inspection-marker")).toHaveAttribute("aria-label", "Rendered through");
-  expect(screen.getByText("State after command 101")).toBeInTheDocument();
   await fireEvent.keyDown(row, {key:"ArrowUp"});
   expect(pg.inspection.selectedSeq).toBe(100);
   await fireEvent.keyDown(screen.getByRole("button", {name:"Command 100, G_MTX, line 119"}), {key:"ArrowUp"});
@@ -66,12 +69,55 @@ it("pages commands, selects with arrows, links repeated rows and expands raw con
   expect(screen.getByRole("button", {name:"Command 99, G_MTX, line 118"})).toHaveAttribute("aria-pressed", "true");
   await fireEvent.click(screen.getByRole("button", {name:"Next page"}));
   expect(screen.getByRole("button", {name:"Command 101, G_MTX, line 20"})).toHaveClass("source-match");
+  pg.setBreakpoints([20]);
+  await tick();
+  expect(screen.getByRole("button", {name:"Command 101, G_MTX, line 20"})).toHaveClass("breakpoint");
+  expect(screen.getByRole("tab", {name:"Breakpoints (1)"})).toBeInTheDocument();
   pg.selectCommand(8);
+  await fireEvent.click(screen.getByRole("tab", {name:"State"}));
+  expect(screen.getByText("State after command 8")).toBeInTheDocument();
   await vi.waitFor(() => expect(screen.getByText("run 3, op none, material 1, render mode 0")).toBeInTheDocument());
   const words = screen.getByText("Words for 8 · 1 continuation(s)");
   await fireEvent.click(words);
   expect(words.closest("details")).toHaveAttribute("open");
   expect(screen.getByText(/0x00000200: 0x05000000/)).toBeInTheDocument();
+});
+
+it("highlights the state a command changed", async () => {
+  const pg = new Playground();
+  const trace = inspectionTrace();
+  const [base] = trace.states;
+  trace.states = [base, { ...base, geometryMode: "0x00000001", geometryNames: ["G_ZBUFFER"], otherModeL: "0x00000000" }];
+  for (const row of trace.rows) row.state = row.seq >= 5 ? 1 : 0;
+  pg.inspection.open = true;
+  pg.inspection.capture(trace);
+  pg.selectCommand(5);
+  render(DebugPanel, {pg});
+  expect(screen.getByText(/Changed by this command:/)).toHaveTextContent("geometryMode, geometryNames, otherModeL");
+  expect(screen.getByText("Geometry", {selector: "dt"})).toHaveClass("changed");
+  expect(screen.getByText("Texture", {selector: "dt"})).not.toHaveClass("changed");
+  expect(screen.getByText(/Other modes ·/).closest("details")).toHaveAttribute("open");
+  pg.selectCommand(6);
+  await tick();
+  expect(screen.getByText(/Nothing changed since the previous command/)).toBeInTheDocument();
+  pg.selectCommand(0);
+  await tick();
+  expect(screen.getByText(/First command of the frame/)).toBeInTheDocument();
+});
+
+it("lists breakpoints with their source, flags unreached lines and removes them", async () => {
+  const pg = new Playground();
+  pg.inspection.open = true;
+  pg.inspection.capture(inspectionTrace());
+  pg.setBreakpoints([27, 99]);
+  render(DebugPanel, {pg});
+  await fireEvent.click(screen.getByRole("tab", {name:"Breakpoints (2)"}));
+  expect(screen.getByText("gsSP1Triangle(0, 1, 2, 0)")).toBeInTheDocument();
+  expect(screen.getByText("never reached")).toBeInTheDocument();
+  await fireEvent.click(screen.getByRole("button", {name:"Remove breakpoint at line 99"}));
+  expect(pg.inspection.breakpoints).toEqual([27]);
+  await fireEvent.click(screen.getByRole("button", {name:"Remove breakpoint at line 27"}));
+  expect(screen.getByText(/No breakpoints/)).toBeInTheDocument();
 });
 
 it("shows partial traces, emissions and terminal diagnostics, and disables stale stepping", async () => {
@@ -82,14 +128,17 @@ it("shows partial traces, emissions and terminal diagnostics, and disables stale
   trace.rows[8].draws = [{kind:"texRect",target:{pairIndex:1,colorImage:{fmt:0,siz:2,width:64,addr:"0x00100000"},depthImage:null,isDepthClear:false},opIndex:0,rect:[0,0,256,256],tile:3,uls:0,ult:0,dsdx:1024,dtdy:1024,flip:false,copyMode:true,fbSource:"0x00200000"}];
   pg.inspection.open = true;
   pg.inspection.capture(trace);
-  render(DisplayListInspector, {pg});
+  render(DebugBar, {pg});
+  render(DebugPanel, {pg});
   await fireEvent.click(screen.getByRole("button", {name:"Next draw"}));
-  expect(screen.getByText(/partial: cap/)).toBeInTheDocument();
-  expect(screen.getByText(/Terminal diagnostic: missing render mode/)).toBeInTheDocument();
   expect(screen.getByText(/Framebuffer source: 0x00200000/)).toBeInTheDocument();
   expect(screen.getByText(/Explicit tile 3/)).toBeInTheDocument();
+  await fireEvent.click(screen.getByRole("tab", {name:"Commands"}));
+  expect(screen.getByText(/partial: cap/)).toBeInTheDocument();
+  expect(screen.getByText(/Terminal diagnostic: missing render mode/)).toBeInTheDocument();
   pg.inspection.invalidate();
-  await vi.waitFor(() => expect(screen.getByRole("button", {name:"Step forward"})).toBeDisabled());
+  await vi.waitFor(() => expect(screen.getByRole("button", {name:"Step over"})).toBeDisabled());
+  expect(screen.getByRole("button", {name:"Continue"})).toBeDisabled();
   expect(screen.getByRole("button", {name:"Command 8, G_TRI1, line 27"})).toBeDisabled();
   pg.stepCommand(-1);
   expect(pg.inspection.selectedSeq).toBe(8);

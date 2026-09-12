@@ -1,6 +1,6 @@
 import init, { Renderer, analyze, inspect } from "../wasm/n64_toys.js";
 import { Inspection } from "./inspection.svelte";
-import type { Trace, TraceDiagnostic } from "./inspection";
+import type { StepKind, Trace, TraceDiagnostic } from "./inspection";
 import STARTER_SOURCE from "./docs/starter.n64?raw";
 import type { Toy, ToyTexture } from "../toys/types";
 import { parseBin } from "./texture-bin";
@@ -178,6 +178,8 @@ async function prepareBundledAsset(
     },
   };
 }
+
+export type DebugCommand = "continue" | "over" | "into" | "out" | "stop";
 
 export class Playground {
   readonly inspection = new Inspection();
@@ -553,8 +555,9 @@ export class Playground {
       ? { version: 1, time: inputs.time, microcode: inputs.microcode, entry: null, termination: "stopped", dispatched: 0, rows: [], states: [], sourceLines: [], diags: [], error: this.textureLimitError } as Trace
       : inspect(inputs.source, inputs.time, inputs.textures, inputs.microcode) as Trace;
     this.inspection.capture(trace);
-    const seq = this.inspection.selectedSeq ?? trace.rows.at(-1)?.seq;
-    if (seq !== undefined) this.selectCommand(seq, false);
+    const fresh = this.inspection.selectedSeq === null;
+    const seq = fresh ? this.inspection.entrySeq() : this.inspection.selectedSeq;
+    if (seq !== null) this.selectCommand(seq, fresh);
   }
 
   toggleInspection(): void {
@@ -564,7 +567,6 @@ export class Playground {
       this.renderFrame(this.time);
     } else {
       this.pause(false);
-      this.inspection.exitLine = null;
       this.inspection.open = true;
       this.run();
     }
@@ -594,6 +596,38 @@ export class Playground {
   renderToEnd(): void {
     const seq = this.inspection.trace?.rows.at(-1)?.seq;
     if (seq !== undefined) this.selectCommand(seq);
+  }
+
+  stepLine(kind: StepKind, dir: 1 | -1 = 1): void {
+    const seq = this.inspection.stepLine(kind, dir);
+    if (seq !== null) this.selectCommand(seq);
+  }
+
+  /** Run to the next breakpoint; with none ahead, to the end (or, backwards, to the first command). */
+  continueFrame(dir: 1 | -1 = 1): void {
+    const rows = this.inspection.trace?.rows ?? [];
+    const seq = this.inspection.continueTo(dir) ?? (dir > 0 ? rows.at(-1)?.seq : rows[0]?.seq);
+    if (seq !== undefined && seq !== null) this.selectCommand(seq);
+  }
+
+  restartFrame(): void {
+    const seq = this.inspection.entrySeq();
+    if (seq !== null) this.selectCommand(seq);
+  }
+
+  /** Editor keys: any command starts debugging first, like an IDE's F5/F10 on an idle session. */
+  debugCommand(command: DebugCommand): void {
+    if (!this.inspection.open) {
+      if (command !== "stop") this.toggleInspection();
+      return;
+    }
+    if (command === "stop") this.toggleInspection();
+    else if (command === "continue") this.continueFrame(1);
+    else this.stepLine(command, 1);
+  }
+
+  setBreakpoints(lines: number[]): void {
+    this.inspection.breakpoints = lines;
   }
 
   inspectSourceLine(line: number): void {
@@ -845,7 +879,6 @@ export class Playground {
 
   /** Debounced re-render after an edit. Edits always apply; there is no gate. */
   scheduleRun(): void {
-    this.inspection.exitLine = null;
     clearTimeout(this.#debounce);
     this.#debounce = setTimeout(() => this.run(), 300);
   }
