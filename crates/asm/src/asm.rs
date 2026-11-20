@@ -349,6 +349,7 @@ fn stmt_word_count(s: &Stmt, microcode: Microcode) -> usize {
             }
         }
         Stmt::Vtx(_)
+        | Stmt::VtxArray { .. }
         | Stmt::Viewport(_)
         | Stmt::Mtx(_)
         | Stmt::Texture(_)
@@ -383,7 +384,8 @@ struct EmitCtx<'a> {
     mtx_addr: &'a HashMap<String, u32>,
     light_addr: &'a HashMap<String, u32>,
     lookat_addr: &'a HashMap<String, u32>,
-    vtx_addr: u32,
+    vertex_arrays: &'a HashMap<&'a str, (u32, usize)>,
+    loose_vertices: (u32, usize),
     vp_addr: u32,
     block_addr: &'a HashMap<String, u32>,
     tex: Option<&'a HashMap<String, u32>>,
@@ -434,6 +436,7 @@ fn group_blocks<'a>(
     for (line, s) in stmts {
         match s {
             Stmt::Vtx(_)
+            | Stmt::VtxArray { .. }
             | Stmt::Viewport(_)
             | Stmt::Mtx(_)
             | Stmt::Texture(_)
@@ -796,6 +799,23 @@ fn encode_textures(
     }
 }
 
+fn vertex_bytes(v: &VtxDef) -> [u8; 16] {
+    let [r, g, b] = v.normal.map_or([v.r, v.g, v.b], |n| n.map(|c| c as u8));
+    VtxColored {
+        x: v.x,
+        y: v.y,
+        z: v.z,
+        flag: v.flag,
+        s: v.s,
+        t: v.t,
+        r,
+        g,
+        b,
+        a: v.a,
+    }
+    .to_bytes()
+}
+
 fn assemble_inner(
     source: &str,
     textures: TextureInputs<'_>,
@@ -821,43 +841,37 @@ fn assemble_inner(
     });
     rdram.extend_from_slice(&vp.to_bytes());
 
-    // --- data: vertex pool ---
-    // Loose `Vtx`/`VtxN` lines lay out positionally. `VtxSet` blocks are morph operands (skip-armed,
-    // never written here). The morph OUTPUT pools — interpolated per frame in `assemble_at` and
-    // passed in via `vtx_overrides` — are materialized after the static pool. Since at most one
-    // pool reaches RDRAM in practice, `vtx_addr` is the single base `gsSPVertex(pool, n, 0)` loads.
     let vtx_addr = rdram.len() as u32;
     for (_l, s) in &stmts {
         if let Stmt::Vtx(v) = s {
-            let vc = VtxColored {
-                x: v.x,
-                y: v.y,
-                z: v.z,
-                flag: v.flag,
-                s: v.s,
-                t: v.t,
-                r: v.r,
-                g: v.g,
-                b: v.b,
-                a: v.a,
-            };
-            let mut bytes = vc.to_bytes();
-            // VtxN form: overwrite bytes 12/13/14 with s8 normals (byte 15 = alpha already set).
-            if let Some([nx, ny, nz]) = v.normal {
-                bytes[12] = nx as u8;
-                bytes[13] = ny as u8;
-                bytes[14] = nz as u8;
-                // byte 15 is alpha, already written from vc.a
-            }
-            rdram.extend_from_slice(&bytes);
+            rdram.extend_from_slice(&vertex_bytes(v));
         }
     }
-    // Materialize any morph output pools (pre-baked 16-byte vertices), in declared order.
-    for (_l, s) in &stmts {
-        if let Stmt::Morph(m) = s {
-            if let Some(bytes) = vtx_overrides.get(&m.pool) {
-                rdram.extend_from_slice(bytes);
+    let loose_vertices = (vtx_addr, (rdram.len() - vtx_addr as usize) / 16);
+    let mut vertex_arrays = HashMap::new();
+    for (line, stmt) in &stmts {
+        let addr = rdram.len() as u32;
+        let (name, len) = match stmt {
+            Stmt::VtxArray { name, verts } => {
+                for v in verts {
+                    rdram.extend_from_slice(&vertex_bytes(v));
+                }
+                (name, verts.len())
             }
+            Stmt::Morph(m) => {
+                let Some(bytes) = vtx_overrides.get(&m.pool) else {
+                    continue;
+                };
+                rdram.extend_from_slice(bytes);
+                (&m.pool, bytes.len() / 16)
+            }
+            _ => continue,
+        };
+        if vertex_arrays.insert(name.as_str(), (addr, len)).is_some() {
+            diags.push(Diag {
+                line: *line,
+                msg: format!("duplicate vertex array: {name}"),
+            });
         }
     }
 
@@ -1024,7 +1038,8 @@ fn assemble_inner(
         mtx_addr: &mtx_addr,
         light_addr: &light_addr,
         lookat_addr: &lookat_addr,
-        vtx_addr,
+        vertex_arrays: &vertex_arrays,
+        loose_vertices,
         vp_addr,
         block_addr: &block_addr,
         tex: has_texture_inputs.then_some(&encoded_textures.addresses),
@@ -1351,6 +1366,7 @@ pub fn assemble_with_texture(
 fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &mut Vec<Diag>) {
     match s {
         Stmt::Vtx(_)
+        | Stmt::VtxArray { .. }
         | Stmt::Viewport(_)
         | Stmt::Mtx(_)
         | Stmt::Texture(_)
@@ -1420,11 +1436,34 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
             };
             push_word(rdram, w0, w1);
         }
-        Stmt::SpVertex { n, v0 } => {
+        Stmt::SpVertex {
+            name,
+            offset,
+            n,
+            v0,
+        } => {
+            let pool = ctx
+                .vertex_arrays
+                .get(name.as_str())
+                .copied()
+                .or_else(|| (name == "verts").then_some(ctx.loose_vertices));
+            let Some((base, len)) = pool else {
+                diags.push(Diag {
+                    line,
+                    msg: format!("gsSPVertex: unknown vertex array `{name}`"),
+                });
+                return;
+            };
+            let offset = offset.unwrap_or(0) as usize;
+            if offset > len || usize::from(*n) > len - offset {
+                diags.push(Diag { line, msg: format!("gsSPVertex: cannot load {n} vertices at index {offset} from `{name}` ({len} vertices)") });
+                return;
+            }
+            let addr = base + (offset * 16) as u32;
             let (w0, w1) = if ctx.microcode == Microcode::F3d {
-                gsp_vertex_f3d(*v0, *n, ctx.vtx_addr)
+                gsp_vertex_f3d(*v0, *n, addr)
             } else {
-                gsp_vertex(*v0, *n, ctx.vtx_addr)
+                gsp_vertex(*v0, *n, addr)
             };
             push_word(rdram, w0, w1);
         }

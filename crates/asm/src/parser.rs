@@ -372,6 +372,10 @@ pub struct MorphDef {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Stmt {
     Vtx(VtxDef),
+    VtxArray {
+        name: String,
+        verts: Vec<VtxDef>,
+    },
     Viewport(VpDef),
     Mtx(MtxDef),
     Texture(TextureDef),
@@ -388,6 +392,8 @@ pub enum Stmt {
     /// data; materialized into the vtx region at `assemble_at` (see [`MorphDef`]).
     Morph(MorphDef),
     SpVertex {
+        name: String,
+        offset: Option<u32>,
         n: u8,
         v0: u8,
     },
@@ -598,16 +604,15 @@ pub enum Stmt {
     GfxBlockEnd,
 }
 
-/// Split on top-level commas only (commas inside parentheses are preserved), so nested
-/// operands like `seg(6, 0)` survive as a single argument.
+/// Split on top-level commas only, preserving nested calls and brace initializers.
 fn split_top_level(s: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut depth = 0i32;
     let mut start = 0usize;
     for (i, ch) in s.char_indices() {
         match ch {
-            '(' => depth += 1,
-            ')' => depth -= 1,
+            '(' | '{' => depth += 1,
+            ')' | '}' => depth -= 1,
             ',' if depth == 0 => {
                 out.push(s[start..i].trim());
                 start = i + 1;
@@ -632,6 +637,10 @@ fn parse_target_u32(tok: &str, microcode: Microcode) -> Option<u32> {
     if microcode != Microcode::F3d {
         return parse_u32_token(tok);
     }
+    parse_unsigned(tok)
+}
+
+fn parse_unsigned(tok: &str) -> Option<u32> {
     let t = tok.trim();
     if let Some(hex) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
         u32::from_str_radix(hex, 16).ok()
@@ -736,8 +745,7 @@ fn call_args<'a>(line: &'a str, head: &str) -> Option<Vec<&'a str>> {
     let rest = line.strip_prefix(head)?;
     let inner = rest.trim().strip_prefix('(')?;
     let inner = inner
-        .trim_end()
-        .trim_end_matches(';')
+        .trim_end_matches([';', ','])
         .trim_end()
         .strip_suffix(')')?;
     Some(split_top_level(inner))
@@ -762,6 +770,10 @@ fn parse_vtx_def(tok: &str) -> Result<VtxDef, String> {
             "Vtx expects { x,y,z,flag,s,t,r,g,b,a }".to_string()
         }
     })?;
+    vtx_from_fields(&f, is_normal)
+}
+
+fn vtx_from_fields(f: &[&str], is_normal: bool) -> Result<VtxDef, String> {
     if f.len() != 10 {
         return Err(if is_normal {
             "VtxN: could not parse 10 numeric fields".to_string()
@@ -809,6 +821,169 @@ fn parse_vtx_def(tok: &str) -> Result<VtxDef, String> {
     }
 }
 
+fn is_identifier(s: &str) -> bool {
+    let mut bytes = s.bytes();
+    bytes
+        .next()
+        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+fn parse_vtx_initializer(entry: &str) -> Result<VtxDef, String> {
+    let unbrace = |s: &str| s.starts_with('{') && s.ends_with('}');
+    let mut inner = entry;
+    while unbrace(inner) {
+        inner = inner[1..inner.len() - 1].trim();
+        let mut fields = split_top_level(inner);
+        if fields.last() == Some(&"") {
+            fields.pop();
+        }
+        match fields.as_slice() {
+            [nested] if unbrace(nested) => inner = nested,
+            [xyz, flag, st, rgba] => {
+                let mut flat = Vec::new();
+                for (group, len) in [(xyz, 3), (st, 2), (rgba, 4)] {
+                    if !unbrace(group) {
+                        break;
+                    }
+                    let parts = group[1..group.len() - 1].trim_end().trim_end_matches(',');
+                    let parts = split_top_level(parts);
+                    if parts.len() != len {
+                        break;
+                    }
+                    flat.extend(parts);
+                    if len == 3 {
+                        flat.push(flag);
+                    }
+                }
+                return vtx_from_fields(&flat, false);
+            }
+            _ => return vtx_from_fields(&fields, false),
+        }
+    }
+    Err("expected a braced Vtx initializer".into())
+}
+
+fn vtx_array_header(line: &str) -> Option<&str> {
+    let mut rest = line;
+    while let Some(("static" | "const", tail)) = rest.split_once(char::is_whitespace) {
+        rest = tail.trim_start();
+    }
+    let ("Vtx", tail) = rest.split_once(char::is_whitespace)? else {
+        return None;
+    };
+    let (name, _) = tail.split_once('[')?;
+    is_identifier(name.trim()).then_some(tail)
+}
+
+fn parse_vtx_array<'a>(
+    header: &str,
+    line: usize,
+    lines: &mut impl Iterator<Item = (usize, &'a str)>,
+) -> Result<Stmt, Diag> {
+    let error = |msg: &str| Diag {
+        line,
+        msg: msg.into(),
+    };
+    let (decl, rhs) = header
+        .split_once('=')
+        .ok_or_else(|| error("expected `Vtx name[] = { ... };`"))?;
+    let (name, brackets) = decl.split_once('[').unwrap();
+    if brackets.trim() != "]" {
+        return Err(error("Vtx array declaration expects empty brackets `[]`"));
+    }
+    let mut body = rhs.trim_start().to_string();
+    let mut depth = 0;
+    let mut start = 0;
+    let end = 'array: loop {
+        if !body.trim_start().is_empty() && !body.trim_start().starts_with('{') {
+            return Err(error("expected a braced Vtx array initializer"));
+        }
+        for (i, ch) in body[start..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break 'array start + i;
+                    }
+                }
+                _ => continue,
+            }
+        }
+        let Some((_, next)) = lines.next() else {
+            return Err(error("unterminated Vtx array"));
+        };
+        start = body.len();
+        body.push('\n');
+        body.push_str(next.split("//").next().unwrap().trim());
+    };
+    if !matches!(body[end + 1..].trim(), ";" | "") {
+        return Err(error("unexpected text after Vtx array"));
+    }
+    let mut verts = Vec::new();
+    let open = body.find('{').unwrap();
+    let mut entries = split_top_level(&body[open + 1..end]);
+    if entries.last() == Some(&"") {
+        entries.pop();
+    }
+    let mut rest = body.as_str();
+    let mut entry_line = line;
+    for entry in entries {
+        let start = entry.as_ptr() as usize - rest.as_ptr() as usize;
+        entry_line += rest[..start].matches('\n').count();
+        rest = &rest[start..];
+        verts.push(parse_vtx_initializer(entry).map_err(|msg| Diag {
+            line: entry_line,
+            msg,
+        })?);
+    }
+    if verts.is_empty() {
+        return Err(error("Vtx array must contain at least one vertex"));
+    }
+    Ok(Stmt::VtxArray {
+        name: name.trim().into(),
+        verts,
+    })
+}
+
+fn parse_vertex_load(line: &str, microcode: Microcode) -> Result<Stmt, String> {
+    let args = call_args(line, "gsSPVertex").ok_or("gsSPVertex expects (array, n, v0)")?;
+    let [source, n, v0] = args.as_slice() else {
+        return Err("gsSPVertex expects (array, n, v0)".into());
+    };
+    let (name, offset) = if let Some(source) = source.strip_prefix('&') {
+        let (name, offset) = source
+            .split_once('[')
+            .and_then(|(name, rhs)| Some((name.trim(), rhs.strip_suffix(']')?.trim())))
+            .ok_or("gsSPVertex expects `&array[index]`")?;
+        let offset = parse_unsigned(offset)
+            .ok_or("gsSPVertex: source index must be a nonnegative integer")?;
+        (name, Some(offset))
+    } else {
+        (*source, None)
+    };
+    if !is_identifier(name) {
+        return Err("gsSPVertex expects an array name or `&array[index]`".into());
+    }
+    let (Some(n), Some(v0)) = (parse_unsigned(n), parse_unsigned(v0)) else {
+        return Err("gsSPVertex: n and v0 must be nonnegative integers".into());
+    };
+    let (target, slots) = match microcode {
+        Microcode::F3d => ("F3D", 16),
+        Microcode::F3dex2 => ("F3DEX2", 32),
+    };
+    if !(1..=slots).contains(&n) || v0 > slots - n {
+        return Err(format!("gsSPVertex: {target} requires 1 <= n <= {slots} and v0 + n <= {slots} (got n={n}, v0={v0})"));
+    }
+    Ok(Stmt::SpVertex {
+        name: name.into(),
+        offset,
+        n: n as u8,
+        v0: v0 as u8,
+    })
+}
+
 /// Split a `VtxSet` block body into individual `Vtx`/`VtxN { ... }` tokens. Tokens may be on one
 /// line or several; each starts at a `Vtx`/`VtxN` keyword and runs through its closing `}`.
 fn split_vtx_tokens(body: &str) -> Vec<&str> {
@@ -842,7 +1017,8 @@ pub fn parse(source: &str) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
 pub fn parse_for(source: &str, microcode: Microcode) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
     let mut stmts = Vec::new();
     let mut diags = Vec::new();
-    for (i, raw) in source.lines().enumerate() {
+    let mut lines = source.lines().enumerate();
+    while let Some((i, raw)) = lines.next() {
         let line = match raw.split("//").next() {
             Some(s) => s.trim(),
             None => raw.trim(),
@@ -852,7 +1028,12 @@ pub fn parse_for(source: &str, microcode: Microcode) -> (Vec<(usize, Stmt)>, Vec
         }
         let n = i + 1;
 
-        if line.starts_with("Mtx ") || line.starts_with("Mtx\t") {
+        if let Some(header) = vtx_array_header(line) {
+            match parse_vtx_array(header, n, &mut lines) {
+                Ok(stmt) => stmts.push((n, stmt)),
+                Err(diag) => diags.push(diag),
+            }
+        } else if line.starts_with("Mtx ") || line.starts_with("Mtx\t") {
             let body = line.strip_prefix("Mtx").unwrap().trim();
             match body.split_once('=') {
                 Some((name_part, rhs)) => {
@@ -1213,19 +1394,9 @@ pub fn parse_for(source: &str, microcode: Microcode) -> (Vec<(usize, Stmt)>, Vec
                 }),
             }
         } else if line.starts_with("gsSPVertex") {
-            match call_args(line, "gsSPVertex") {
-                Some(a) if a.len() == 3 => match (parse_target_u32(a[1], microcode), parse_target_u32(a[2], microcode)) {
-                    (Some(nn), Some(v0)) if microcode != Microcode::F3d || (1..=16).contains(&nn) && v0.checked_add(nn).is_some_and(|end| end <= 16) => stmts.push((n, Stmt::SpVertex { n: nn as u8, v0: v0 as u8 })),
-                    (Some(nn), Some(v0)) => diags.push(Diag { line: n, msg: format!("gsSPVertex: F3D requires 1 <= n <= 16 and v0 + n <= 16 (got n={nn}, v0={v0})") }),
-                    _ => diags.push(Diag {
-                        line: n,
-                        msg: "gsSPVertex(pool, n, v0): n and v0 must be numbers".into(),
-                    }),
-                },
-                _ => diags.push(Diag {
-                    line: n,
-                    msg: "gsSPVertex expects (pool, n, v0)".into(),
-                }),
+            match parse_vertex_load(line, microcode) {
+                Ok(stmt) => stmts.push((n, stmt)),
+                Err(msg) => diags.push(Diag { line: n, msg }),
             }
         } else if line.starts_with("gsSP1Triangle") {
             match call_args(line, "gsSP1Triangle") {
@@ -2171,7 +2342,7 @@ pub fn parse_for(source: &str, microcode: Microcode) -> (Vec<(usize, Stmt)>, Vec
                     msg: "Gfx expects `Gfx <name>[] = {`".into(),
                 }),
             }
-        } else if line == "}" {
+        } else if matches!(line, "}" | "};") {
             stmts.push((n, Stmt::GfxBlockEnd));
         } else if line.starts_with("gsSP2Triangles") {
             match call_args(line, "gsSP2Triangles") {
@@ -2914,7 +3085,15 @@ gsSPEndDisplayList()
             Stmt::SpClearGeometryMode(0x0002_0000 | 0x0000_0400)
         );
         assert_eq!(stmts[8], Stmt::SpSetGeometryMode(0x0000_0004 | 0x0020_0000));
-        assert_eq!(stmts[9], Stmt::SpVertex { n: 1, v0: 0 });
+        assert_eq!(
+            stmts[9],
+            Stmt::SpVertex {
+                name: "verts".into(),
+                offset: None,
+                n: 1,
+                v0: 0
+            }
+        );
         assert_eq!(
             stmts[10],
             Stmt::Sp1Triangle {

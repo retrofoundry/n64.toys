@@ -14,11 +14,22 @@
   // Syntax strings live here rather than in the markup: braces are Svelte template syntax, and
   // keeping them as data makes each form exactly one text node.
   const MINI_EXAMPLE = [
-    "Mtx model = identity()",
-    "Vtx { -70, -60, 0, 0, 0, 0, 255, 0, 0, 255 }",
-    "update { guRotate(model, time * 60, 0, 0, 1) }",
-    "gsSPMatrix(model, G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH)",
-    "gsSPVertex(verts, 3, 0)",
+    "static const Vtx triangle[] = {",
+    "  {{{  0,   0, 0}, 0, {0, 0}, {0, 0, 0, 255}}},",
+    "  {{{-70, -55, 0}, 0, {0, 0}, {255, 80, 0, 255}}},",
+    "  {{{ 65, -55, 0}, 0, {0, 0}, {255, 80, 0, 255}}},",
+    "  {{{  5,  75, 0}, 0, {0, 0}, {255, 80, 0, 255}}},",
+    "};",
+    "Mtx proj = scale(0.0078125)",
+    "Vp { 640, 480, 511, 0, 640, 480, 511, 0 }",
+    "gsSPMatrix(proj, G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH)",
+    "gsSPViewport(vp)",
+    "gsSPSetGeometryMode(G_SHADE | G_SHADING_SMOOTH)",
+    "gsDPSetOtherMode_H(G_CYC_1CYCLE)",
+    "gsDPSetRenderMode(G_RM_OPA_SURF, G_RM_OPA_SURF2)",
+    "gsDPSetCombineLERP(0, 0, 0, SHADE, 0, 0, 0, SHADE, 0, 0, 0, SHADE, 0, 0, 0, SHADE)",
+    "gsSPVertex(&triangle[1], 3, 0)",
+    "gsSP1Triangle(0, 1, 2, 0)",
     "gsSPEndDisplayList()",
   ].join("\n");
 
@@ -52,12 +63,16 @@
       note: "The eye basis for reflection texgen. Apply with gsSPLookAt(name).",
     },
     {
-      syntax: "gsSPVertex(verts, n, v0)",
-      note: "Loads n vertices from the pool into the RSP's 32-slot cache starting at slot v0. Triangles then index that cache by slot number, not by name — so verts is a convention that keeps source portable, not a lookup.",
+      syntax: "static const Vtx name[] = { ... };",
+      note: "A named array of N64 vertices. Each entry is {{{x, y, z}, flag, {s, t}, {r, g, b, a}}}. The last four bytes can also carry a normal and alpha when lighting is enabled.",
+    },
+    {
+      syntax: "gsSPVertex(&name[index], n, v0)",
+      note: "Reads n vertices starting at array index (zero-based) and loads them into cache slots starting at v0. Use name to start at index zero, or verts for loose Vtx/VtxN lines. The slice must fit the source, and the destination must fit the 16-slot F3D or 32-slot F3DEX2 cache. Triangles use cache slots, not array indices.",
     },
     {
       syntax: "VtxSet <name> = { <Vtx/VtxN lines> }",
-      note: "A named vertex block — the one place vertices take names, since morph needs two sets addressable at once. Only used as a morph operand.",
+      note: "A vertex block used as a morph operand. Load vertices from the named morph output, not the VtxSet.",
     },
     {
       syntax: "Gfx <name>[] = { ... }",
@@ -161,7 +176,7 @@
           draw. Commands refer to declarations by name.
         </p>
         <pre
-          class="overflow-x-auto border border-edge bg-base p-3 text-xs leading-relaxed text-ink"><code
+          class="whitespace-pre-wrap break-words border border-edge bg-base p-3 text-xs leading-relaxed text-ink"><code
             >{MINI_EXAMPLE}</code
           ></pre>
         <div class="mt-2 flex items-center gap-3">

@@ -103,10 +103,10 @@ Gfx main[] = {
 #[test]
 fn f3d_rejects_operands_before_narrowing_in_assembly_and_analysis() {
     for line in [
-        "gsSPVertex(v, 0, 0)",
-        "gsSPVertex(v, 16, 1)",
-        "gsSPVertex(v, 4294967297, 0)",
-        "gsSPVertex(v, -4294967296, 0)",
+        "gsSPVertex(verts, 0, 0)",
+        "gsSPVertex(verts, 16, 1)",
+        "gsSPVertex(verts, 4294967297, 0)",
+        "gsSPVertex(verts, -4294967296, 0)",
         "gsSP1Triangle(0, 15, 16, 0)",
         "gsSP1Triangle(0, 1, 4294967296, 0)",
         "gsSP2Triangles(0,1,2,0, 3,4,-1,0)",
@@ -124,10 +124,23 @@ fn f3d_rejects_operands_before_narrowing_in_assembly_and_analysis() {
 }
 
 #[test]
-fn f3dex2_keeps_permissive_operand_behavior() {
-    let source = "gsSPVertex(v, 17, 250)\ngsSP1Triangle(16,17,18,0)\ngsSPEndDisplayList()\n";
-    assert!(analyze(source, Microcode::F3dex2).diagnostics.is_empty());
-    assert!(assemble_at_with_textures(source, 0.0, &[], Microcode::F3dex2).is_ok());
+fn f3dex2_checks_vertex_cache_bounds_before_narrowing() {
+    let declaration = "Vtx verts[] = { {{0,0,0,0,0,0,0,0,0,0}} };\n";
+    let valid = format!("{declaration}gsSPVertex(verts, 1, 31)\ngsSPEndDisplayList()");
+    assert!(assemble_at_with_textures(&valid, 0.0, &[], Microcode::F3dex2).is_ok());
+    for load in [
+        "gsSPVertex(verts, 2, 31)",
+        "gsSPVertex(&verts[0], 1, 32)",
+        "gsSPVertex(verts, 33, 0)",
+        "gsSPVertex(verts, 0, 0)",
+        "gsSPVertex(verts, 1, 4294967296)",
+    ] {
+        let source = format!("{declaration}{load}\ngsSPEndDisplayList()");
+        let diagnostics = analyze(&source, Microcode::F3dex2).diagnostics;
+        assert_eq!(diagnostics.len(), 1, "{load}: {diagnostics:?}");
+        assert_eq!(diagnostics[0].line, 2);
+        assert!(assemble_at_with_textures(&source, 0.0, &[], Microcode::F3dex2).is_err());
+    }
 }
 
 #[test]
@@ -236,8 +249,8 @@ gsSPEndDisplayList()
 #[test]
 fn f3d_accepts_vertex_cache_boundaries() {
     for command in [
-        "gsSPVertex(v, 16, 0)",
-        "gsSPVertex(v, 1, 15)",
+        "gsSPVertex(verts, 16, 0)",
+        "gsSPVertex(verts, 1, 15)",
         "gsSP1Triangle(15,15,15,0)",
     ] {
         let source = format!("{command}\ngsSPEndDisplayList()\n");

@@ -8,6 +8,60 @@ fn word(rdram: &[u8], off: usize) -> (u32, u32) {
 }
 
 #[test]
+fn vertex_sources_resolve_independently_of_cache_slots() {
+    let src = "\
+Vtx { 9, 0, 0, 0, 0, 0, 0, 0, 0, 255 }
+static const Vtx archVerts[] = {
+  {{{-80, 13, 0}, 0, {1, 2}, {255, 0, 0, 255}}},
+  {{{7, 35, -2}, 0x1234,
+    {-64, 32}, {0, 0x80, 255, 255}}}, // second source vertex
+};
+const Vtx other[] = { {{12, 0, 0}, 0, {0, 0}, {0, 255, 0, 255}} };
+Gfx main[] = {
+  gsSPVertex(&archVerts[1], 1, 6),
+  gsSPVertex(other, 1, 0),
+  gsSPVertex(archVerts, 1, 0),
+  gsSPVertex(verts, 1, 0),
+  gsSPEndDisplayList(),
+};
+";
+    let img = assemble(src).unwrap();
+    let entry = img.entry_addr as usize;
+    assert_eq!(word(&img.rdram, entry), (0x0100_100e, 48));
+    assert_eq!(word(&img.rdram, entry + 8), (0x0100_1002, 64));
+    assert_eq!(word(&img.rdram, entry + 16), (0x0100_1002, 32));
+    assert_eq!(word(&img.rdram, entry + 24), (0x0100_1002, 16));
+    assert_eq!(
+        &img.rdram[48..64],
+        &[0, 7, 0, 35, 255, 254, 0x12, 0x34, 255, 192, 0, 32, 0, 128, 255, 255]
+    );
+    assert_eq!(img.source_map[0].1, 9);
+}
+
+#[test]
+fn bad_vertex_sources_report_the_load_line() {
+    for (load, message) in [
+        ("gsSPVertex(typo, 1, 0)", "unknown vertex array `typo`"),
+        (
+            "gsSPVertex(&named[1], 2, 0)",
+            "cannot load 2 vertices at index 1",
+        ),
+        (
+            "gsSPVertex(&named[4294967295], 1, 0)",
+            "at index 4294967295",
+        ),
+        ("gsSPVertex(&named[-1], 1, 0)", "nonnegative integer"),
+        ("gsSPVertex(verts, 2, 0)", "`verts` (1 vertices)"),
+    ] {
+        let src = format!("Vtx {{ 0,0,0,0,0,0,0,0,0,0 }}\nVtx named[] = {{ {{0,0,0,0,0,0,0,0,0,0}}, {{0,0,0,0,0,0,0,0,0,0}} }};\n{load}\ngsSPEndDisplayList()");
+        let diagnostics = assemble(&src).unwrap_err();
+        assert_eq!(diagnostics.len(), 1, "{load}: {diagnostics:?}");
+        assert_eq!(diagnostics[0].line, 3);
+        assert!(diagnostics[0].msg.contains(message), "{diagnostics:?}");
+    }
+}
+
+#[test]
 fn named_blocks_subdl_and_segment_resolve() {
     // main maps segment 6 -> the `quad` block, then calls it through the segment, then ends.
     let src = "\
