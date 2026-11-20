@@ -1501,7 +1501,8 @@ fn emit_stmt(rdram: &mut Vec<u8>, s: &Stmt, line: usize, ctx: &EmitCtx, diags: &
                 }
             } else {
                 let (w0, w1) = gsp_popmatrix(*num);
-                push_word(rdram, w0, w1);
+                // F3DEX2 DMA: 64-byte matrix, model-view stack index 2.
+                push_word(rdram, w0 | 0x0038_0002, w1);
             }
         }
         Stmt::SpDisplayList { target } => {

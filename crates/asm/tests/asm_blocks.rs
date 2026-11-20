@@ -8,6 +8,48 @@ fn word(rdram: &[u8], off: usize) -> (u32, u32) {
 }
 
 #[test]
+fn chapel_header_matches_explicit_window_commands() {
+    let mut host = String::new();
+    let mut expanded = String::from("Gfx chapelWindow[] = {\n");
+    for (i, color) in [
+        "125,83,92",
+        "255,177,79",
+        "255,219,138",
+        "255,243,197",
+        "158,98,101",
+        "146,88,101",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let n = i + 2;
+        host.push_str(&format!("Mtx p{n} = identity()\nMtx s{n} = identity()\n"));
+        expanded.push_str(&format!("gsSPMatrix(p{n},G_MTX_PUSH)\ngsSPMatrix(s{n},G_MTX_NOPUSH)\ngsDPSetPrimColor(0,0,{color},255)\ngsSPDisplayList(box)\ngsSPPopMatrix(1)\n"));
+    }
+    expanded.push_str("gsSPEndDisplayList()\n}\nGfx chapelWindows[] = {\n");
+    for n in 1..=10 {
+        host.push_str(&format!("Mtx chapelWindowAt{n} = identity()\n"));
+        expanded.push_str(&format!("gsSPMatrix(chapelWindowAt{n},G_MTX_PUSH)\ngsSPDisplayList(chapelWindow)\ngsSPPopMatrix(1)\n"));
+    }
+    expanded.push_str("gsSPEndDisplayList()\n}\n");
+    host.push_str("Gfx box[] = {\ngsSPEndDisplayList()\n}\ngsSPDisplayList(chapelWindows)\ngsSPEndDisplayList()\n");
+    let image = |lists: &str| {
+        n64_toys_asm::assemble_at_with_textures(
+            &format!("{host}{lists}"),
+            0.0,
+            &[],
+            n64_toys_asm::Microcode::F3dex2,
+        )
+        .unwrap()
+        .rdram
+    };
+    assert_eq!(
+        image(include_str!("scenes/chapel-window.h")),
+        image(&expanded)
+    );
+}
+
+#[test]
 fn vertex_sources_resolve_independently_of_cache_slots() {
     let src = "\
 Vtx { 9, 0, 0, 0, 0, 0, 0, 0, 0, 255 }
@@ -120,8 +162,7 @@ Gfx main[] = {
     let e = img.entry_addr as usize;
     // [1] = gsSP2Triangles(0,1,2,0,0,2,3,0) -> (0x06000204, 0x00000406).
     assert_eq!(word(&img.rdram, e + 8), (0x0600_0204, 0x0000_0406));
-    // [2] = gsSPPopMatrix(2) -> (0xD8000000, 0x80).
-    assert_eq!(word(&img.rdram, e + 16), (0xD800_0000, 0x0000_0080));
+    assert_eq!(word(&img.rdram, e + 16), (0xD838_0002, 0x0000_0080));
 }
 
 #[test]

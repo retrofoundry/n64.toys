@@ -864,14 +864,15 @@ fn parse_vtx_initializer(entry: &str) -> Result<VtxDef, String> {
     Err("expected a braced Vtx initializer".into())
 }
 
-fn vtx_array_header(line: &str) -> Option<&str> {
+fn array_header<'a>(line: &'a str, ty: &str) -> Option<&'a str> {
     let mut rest = line;
     while let Some(("static" | "const", tail)) = rest.split_once(char::is_whitespace) {
         rest = tail.trim_start();
     }
-    let ("Vtx", tail) = rest.split_once(char::is_whitespace)? else {
+    let (kind, tail) = rest.split_once(char::is_whitespace)?;
+    if kind != ty {
         return None;
-    };
+    }
     let (name, _) = tail.split_once('[')?;
     is_identifier(name.trim()).then_some(tail)
 }
@@ -1014,10 +1015,113 @@ pub fn parse(source: &str) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
     parse_for(source, Microcode::default())
 }
 
+fn expand_display_macros(source: &str, diags: &mut Vec<Diag>) -> Vec<(usize, String)> {
+    let mut defs = std::collections::HashMap::<String, (Vec<String>, String)>::new();
+    let mut lines = source.lines().enumerate();
+    let mut out = Vec::new();
+    let mut budget = 4 * 1024 * 1024usize;
+    while let Some((i, raw)) = lines.next() {
+        let line = raw.split("//").next().unwrap().trim();
+        let mut error = |msg: &str| {
+            diags.push(Diag {
+                line: i + 1,
+                msg: msg.into(),
+            })
+        };
+        if let Some(def) = line
+            .strip_prefix("#define")
+            .filter(|s| s.starts_with(char::is_whitespace))
+        {
+            let mut def = def.trim().to_owned();
+            while def.ends_with('\\') {
+                def.pop();
+                let Some((_, next)) = lines.next() else {
+                    error("unterminated macro continuation");
+                    return out;
+                };
+                def.push_str(next.split("//").next().unwrap().trim_end());
+            }
+            let Some((name, rest)) = def.split_once('(') else {
+                error("expected function-like display-list macro");
+                continue;
+            };
+            let Some((args, body)) = rest.split_once(')') else {
+                error("expected macro parameter list");
+                continue;
+            };
+            let params: Vec<String> = if args.trim().is_empty() {
+                Vec::new()
+            } else {
+                args.split(',').map(|a| a.trim().to_owned()).collect()
+            };
+            if !is_identifier(name)
+                || params
+                    .iter()
+                    .enumerate()
+                    .any(|(j, p)| !is_identifier(p) || params[..j].contains(p))
+            {
+                error("invalid macro name or parameters");
+                continue;
+            }
+            defs.insert(name.into(), (params, body.trim().into()));
+        } else if let Some((name, (params, body))) = line
+            .split_once('(')
+            .and_then(|(name, _)| defs.get_key_value(name.trim()))
+        {
+            let Some(mut args) = call_args(line, name) else {
+                error("invalid display-list macro call");
+                continue;
+            };
+            if args == [""] {
+                args.clear();
+            }
+            if args.len() != params.len() || args.contains(&"") {
+                error("wrong display-list macro arguments");
+                continue;
+            }
+            let mut expanded = String::new();
+            let mut rest = body.as_str();
+            while !rest.is_empty() {
+                let ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+                let first = ident(rest.chars().next().unwrap());
+                let end = rest.find(|c| ident(c) != first).unwrap_or(rest.len());
+                let (token, tail) = rest.split_at(end);
+                let value = params
+                    .iter()
+                    .position(|p| p == token)
+                    .map_or(token, |j| args[j]);
+                if value.len() > budget {
+                    error("display-list macro expansion too large");
+                    return out;
+                }
+                budget -= value.len();
+                expanded.push_str(value);
+                rest = tail;
+            }
+            for cmd in split_top_level(&expanded) {
+                if !cmd.starts_with("gs") {
+                    error("display-list macros must expand to GBI commands");
+                    break;
+                }
+                out.push((i, cmd.to_owned()));
+            }
+        } else {
+            out.push((i, raw.to_owned()));
+        }
+    }
+    out
+}
+
 pub fn parse_for(source: &str, microcode: Microcode) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
     let mut stmts = Vec::new();
     let mut diags = Vec::new();
-    let mut lines = source.lines().enumerate();
+    let expanded;
+    let mut lines: Box<dyn Iterator<Item = (usize, &str)> + '_> = if source.contains("#define") {
+        expanded = expand_display_macros(source, &mut diags);
+        Box::new(expanded.iter().map(|(i, s)| (*i, s.as_str())))
+    } else {
+        Box::new(source.lines().enumerate())
+    };
     while let Some((i, raw)) = lines.next() {
         let line = match raw.split("//").next() {
             Some(s) => s.trim(),
@@ -1028,7 +1132,7 @@ pub fn parse_for(source: &str, microcode: Microcode) -> (Vec<(usize, Stmt)>, Vec
         }
         let n = i + 1;
 
-        if let Some(header) = vtx_array_header(line) {
+        if let Some(header) = array_header(line, "Vtx") {
             match parse_vtx_array(header, n, &mut lines) {
                 Ok(stmt) => stmts.push((n, stmt)),
                 Err(diag) => diags.push(diag),
@@ -1429,7 +1533,13 @@ pub fn parse_for(source: &str, microcode: Microcode) -> (Vec<(usize, Stmt)>, Vec
         } else if line.starts_with("gsSPMatrix") {
             match call_args(line, "gsSPMatrix") {
                 Some(a) if a.len() >= 2 => {
-                    let name = a[0].to_string();
+                    let operand = a[0].strip_prefix('&').unwrap_or(a[0]).trim();
+                    let name = operand
+                        .strip_prefix('(')
+                        .and_then(|s| s.strip_suffix(')'))
+                        .unwrap_or(operand)
+                        .trim()
+                        .to_string();
                     let flag_text = a[1..].join(",");
                     let flags = MtxFlags {
                         proj: flag_text.contains("G_MTX_PROJECTION"),
@@ -2330,9 +2440,8 @@ pub fn parse_for(source: &str, microcode: Microcode) -> (Vec<(usize, Stmt)>, Vec
                     msg: "gsSPLookAt expects (name)".into(),
                 }),
             }
-        } else if line.starts_with("Gfx ") || line.starts_with("Gfx\t") {
+        } else if let Some(body) = array_header(line, "Gfx") {
             // `Gfx <name>[] = {`  -> open a named command block.
-            let body = line.strip_prefix("Gfx").unwrap().trim();
             match body.split_once('[') {
                 Some((name, rest)) if rest.contains('{') => {
                     stmts.push((n, Stmt::GfxBlockStart(name.trim().to_string())));
@@ -2404,6 +2513,9 @@ pub fn parse_for(source: &str, microcode: Microcode) -> (Vec<(usize, Stmt)>, Vec
             }
         } else if line.starts_with("gsSPPopMatrix") {
             match call_args(line, "gsSPPopMatrix") {
+                Some(a) if a == ["G_MTX_MODELVIEW"] => {
+                    stmts.push((n, Stmt::SpPopMatrix { num: 1 }))
+                }
                 Some(a) if a.len() == 1 => match parse_u32_token(a[0]) {
                     Some(num) => stmts.push((n, Stmt::SpPopMatrix { num })),
                     None => diags.push(Diag {
