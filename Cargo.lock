@@ -216,18 +216,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
-name = "fast3d"
-version = "1.0.0"
-source = "git+https://github.com/retrofoundry/fast3d-rs?rev=f19a9c34c763f64aace0b61c26b65dcb490415e5#f19a9c34c763f64aace0b61c26b65dcb490415e5"
-dependencies = [
- "bytemuck",
- "log",
- "n64-gbi",
- "pollster",
- "wgpu",
-]
-
-[[package]]
 name = "foldhash"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -506,7 +494,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 [[package]]
 name = "n64-gbi"
 version = "1.0.0"
-source = "git+https://github.com/retrofoundry/fast3d-rs?rev=f19a9c34c763f64aace0b61c26b65dcb490415e5#f19a9c34c763f64aace0b61c26b65dcb490415e5"
+source = "git+https://github.com/retrofoundry/ultragfx?rev=53cfe982c59601516637ba32e00c9c0b790c806b#53cfe982c59601516637ba32e00c9c0b790c806b"
 
 [[package]]
 name = "n64-toys-asm"
@@ -922,10 +910,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "twox-hash"
+version = "2.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ea3136b675547379c4bd395ca6b938e5ad3c3d20fad76e7fe85f9e0d011419c"
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+
+[[package]]
+name = "ultragfx"
+version = "1.0.0"
+source = "git+https://github.com/retrofoundry/ultragfx?rev=53cfe982c59601516637ba32e00c9c0b790c806b#53cfe982c59601516637ba32e00c9c0b790c806b"
+dependencies = [
+ "bytemuck",
+ "log",
+ "n64-gbi",
+ "pollster",
+ "twox-hash",
+ "wgpu",
+]
 
 [[package]]
 name = "unicode-ident"
@@ -1021,10 +1028,10 @@ name = "web"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
- "fast3d",
  "n64-toys-asm",
  "serde",
  "serde-wasm-bindgen",
+ "ultragfx",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
