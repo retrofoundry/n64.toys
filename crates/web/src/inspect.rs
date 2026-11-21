@@ -310,6 +310,8 @@ pub struct Row {
     seq: u32,
     pc: String,
     line: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    call_line: Option<usize>,
     depth_before: usize,
     depth_after: usize,
     flow: &'static str,
@@ -390,10 +392,16 @@ impl WalkObserver for Collector<'_> {
                 }
             })
             .collect();
+        let call_line = u32::try_from(step.pc)
+            .ok()
+            .and_then(|pc| self.image.macro_calls.get(&pc))
+            .copied();
+        self.lines.extend(call_line);
         self.rows.push(Row {
             seq: step.seq,
             pc: hex(step.pc),
             line: self.image.line_at(step.pc),
+            call_line,
             depth_before: step.depth_before,
             depth_after: step.depth_after,
             flow: match step.flow {

@@ -34,12 +34,12 @@
       <div>
         <div class="inspection-row text-ink-dim" aria-hidden="true"><span>seq</span><span>line</span><span>source</span><span>mnemonic</span><span>draws</span></div>
         {#each pageRows(trace.rows, inspection.page) as row (row.seq)}
-          <button type="button" class:source-match={!inspection.stale && row.line !== null && row.line === inspection.cursorLine}
-            class:breakpoint={row.line !== null && inspection.breakpoints.includes(row.line)}
+          <button type="button" class:source-match={!inspection.stale && inspection.cursorLine !== null && (row.line === inspection.cursorLine || row.callLine === inspection.cursorLine)}
+            class:breakpoint={inspection.breakpoints.some(line => line === row.line || line === row.callLine)}
             class="inspection-row" onkeydown={keydown} aria-label={`Command ${row.seq}, ${row.decoded.mnemonic}, line ${row.line ?? "unknown"}`}
             aria-pressed={row.seq === inspection.selectedSeq} disabled={inspection.stale} onclick={() => pg.selectCommand(row.seq)}>
             <span class="inspection-position">{#if row.seq === inspection.selectedSeq}<span class="inspection-marker" aria-label="Rendered through">→</span>{/if}{row.seq}</span><span>{row.line ?? "—"}</span>
-            <span class="truncate" style={`padding-left:${Math.min(row.depthBefore, 12) * 8}px`} title={`depth ${row.depthBefore}: ${sources.get(row.line ?? 0) ?? "unmapped"}`}>{sources.get(row.line ?? 0) ?? "unmapped"}</span>
+            <span class="truncate" style={`padding-left:${Math.min(row.depthBefore, 12) * 8}px`} title={`depth ${row.depthBefore}: ${sources.get(row.line ?? 0) ?? "unmapped"}${row.callLine ? ` · called on line ${row.callLine}: ${sources.get(row.callLine)?.trim()}` : ""}`}>{sources.get(row.line ?? 0) ?? "unmapped"}</span>
             <span class="inspection-mnemonic">{row.decoded.mnemonic}</span><span>{emittedCount(row)}</span>
           </button>
         {/each}

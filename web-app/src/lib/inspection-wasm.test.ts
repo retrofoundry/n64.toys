@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 import { initSync, inspect } from "../wasm/n64_toys.js";
-import { combineFormula, renderModePreset, type Trace } from "./inspection";
+import { combineFormula, continueTo, renderModePreset, stepLine, type Trace } from "./inspection";
 import source from "./docs/starter.n64?raw";
 
 initSync({module: new WebAssembly.Module(new Uint8Array(readFileSync(new URL("../wasm/n64_toys_bg.wasm", import.meta.url))))});
@@ -26,6 +26,21 @@ it("consumes the real bridge payload and decodes the starter's state", () => {
     }
   }
 });
+it("steps inside a macro without losing which invocation emitted the command", () => {
+  const scene = String.raw`#define PAINT(v) gsDPSetPrimColor(0,0,v,0,0,255), \
+    gsDPSetEnvColor(0, \
+        v,0,255)
+PAINT(25)
+PAINT(150)
+gsSPEndDisplayList()`;
+  const trace = inspect(scene, 0, [], "F3DEX2") as Trace;
+  expect(trace.rows.map(r => [r.line, r.callLine])).toEqual([[1,4], [2,4], [1,5], [2,5], [6,undefined]]);
+  expect(stepLine(trace.rows, 0, 1, "into")).toBe(1);
+  expect(continueTo(trace.rows, 1, [2], 1)).toBe(3);
+  expect(continueTo(trace.rows, null, [4], 1)).toBe(1);
+  expect(inspect(scene.replace("gsDPSetEnvColor", "gsBogus"), 0, [], "F3DEX2").diags[0]).toMatchObject({line:2,msg:expect.stringContaining("called on line 4")});
+});
+
 it("returns assembly and input errors without needing a renderer", () => {
   expect(inspect("invalid",0,[],"F3DEX2")).toMatchObject({error:"assembly failed",rows:[],diags:[{line:1,kind:"src",seq:null,pc:null}]});
   expect(inspect(source,0,[],"unknown")).toMatchObject({error:"unknown microcode: unknown",rows:[],entry:null});

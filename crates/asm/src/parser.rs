@@ -1015,8 +1015,35 @@ pub fn parse(source: &str) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
     parse_for(source, Microcode::default())
 }
 
-fn expand_display_macros(source: &str, diags: &mut Vec<Diag>) -> Vec<(usize, String)> {
-    let mut defs = std::collections::HashMap::<String, (Vec<String>, String)>::new();
+#[derive(Default)]
+pub(crate) struct MacroLines {
+    first: usize,
+    locations: Vec<(usize, usize)>,
+}
+
+impl MacroLines {
+    pub fn get(&self, line: usize) -> Option<(usize, usize)> {
+        self.locations.get(line.checked_sub(self.first)?).copied()
+    }
+
+    pub fn resolve(&self, diagnostics: &mut [Diag]) {
+        for diag in diagnostics {
+            if let Some((body, call)) = self.get(diag.line) {
+                diag.line = body;
+                diag.msg
+                    .push_str(&format!(" (macro called on line {call})"));
+            }
+        }
+    }
+}
+
+fn expand_display_macros(
+    source: &str,
+    diags: &mut Vec<Diag>,
+    origins: &mut MacroLines,
+) -> Vec<(usize, String)> {
+    let mut defs = std::collections::HashMap::new();
+    origins.first = source.lines().count() + 1;
     let mut lines = source.lines().enumerate();
     let mut out = Vec::new();
     let mut budget = 4 * 1024 * 1024usize;
@@ -1033,8 +1060,10 @@ fn expand_display_macros(source: &str, diags: &mut Vec<Diag>) -> Vec<(usize, Str
             .filter(|s| s.starts_with(char::is_whitespace))
         {
             let mut def = def.trim().to_owned();
+            let mut starts = vec![0];
             while def.ends_with('\\') {
                 def.pop();
+                starts.push(def.len());
                 let Some((_, next)) = lines.next() else {
                     error("unterminated macro continuation");
                     return out;
@@ -1063,7 +1092,17 @@ fn expand_display_macros(source: &str, diags: &mut Vec<Diag>) -> Vec<(usize, Str
                 error("invalid macro name or parameters");
                 continue;
             }
-            defs.insert(name.into(), (params, body.trim().into()));
+            let commands: Vec<_> = split_top_level(body)
+                .into_iter()
+                .map(|cmd| {
+                    let offset = cmd.as_ptr() as usize - def.as_ptr() as usize;
+                    (
+                        i + starts.partition_point(|&start| start <= offset),
+                        cmd.to_owned(),
+                    )
+                })
+                .collect();
+            defs.insert(name.to_owned(), (params, commands));
         } else if let Some((name, (params, body))) = line
             .split_once('(')
             .and_then(|(name, _)| defs.get_key_value(name.trim()))
@@ -1079,31 +1118,33 @@ fn expand_display_macros(source: &str, diags: &mut Vec<Diag>) -> Vec<(usize, Str
                 error("wrong display-list macro arguments");
                 continue;
             }
-            let mut expanded = String::new();
-            let mut rest = body.as_str();
-            while !rest.is_empty() {
-                let ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
-                let first = ident(rest.chars().next().unwrap());
-                let end = rest.find(|c| ident(c) != first).unwrap_or(rest.len());
-                let (token, tail) = rest.split_at(end);
-                let value = params
-                    .iter()
-                    .position(|p| p == token)
-                    .map_or(token, |j| args[j]);
-                if value.len() > budget {
-                    error("display-list macro expansion too large");
-                    return out;
+            for (body_line, command) in body {
+                let mut expanded = String::new();
+                let mut rest = command.as_str();
+                while !rest.is_empty() {
+                    let ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+                    let first = ident(rest.chars().next().unwrap());
+                    let end = rest.find(|c| ident(c) != first).unwrap_or(rest.len());
+                    let (token, tail) = rest.split_at(end);
+                    let value = params
+                        .iter()
+                        .position(|p| p == token)
+                        .map_or(token, |j| args[j]);
+                    if value.len() > budget {
+                        error("display-list macro expansion too large");
+                        return out;
+                    }
+                    budget -= value.len();
+                    expanded.push_str(value);
+                    rest = tail;
                 }
-                budget -= value.len();
-                expanded.push_str(value);
-                rest = tail;
-            }
-            for cmd in split_top_level(&expanded) {
-                if !cmd.starts_with("gs") {
+                if !expanded.starts_with("gs") {
                     error("display-list macros must expand to GBI commands");
                     break;
                 }
-                out.push((i, cmd.to_owned()));
+                let line = origins.first + origins.locations.len();
+                origins.locations.push((*body_line, i + 1));
+                out.push((line - 1, expanded));
             }
         } else {
             out.push((i, raw.to_owned()));
@@ -1113,11 +1154,27 @@ fn expand_display_macros(source: &str, diags: &mut Vec<Diag>) -> Vec<(usize, Str
 }
 
 pub fn parse_for(source: &str, microcode: Microcode) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
+    let mut origins = MacroLines::default();
+    let (mut stmts, mut diags) = parse_with_origins(source, microcode, &mut origins);
+    origins.resolve(&mut diags);
+    for (line, _) in &mut stmts {
+        if let Some((body, _)) = origins.get(*line) {
+            *line = body;
+        }
+    }
+    (stmts, diags)
+}
+
+pub(crate) fn parse_with_origins(
+    source: &str,
+    microcode: Microcode,
+    origins: &mut MacroLines,
+) -> (Vec<(usize, Stmt)>, Vec<Diag>) {
     let mut stmts = Vec::new();
     let mut diags = Vec::new();
     let expanded;
     let mut lines: Box<dyn Iterator<Item = (usize, &str)> + '_> = if source.contains("#define") {
-        expanded = expand_display_macros(source, &mut diags);
+        expanded = expand_display_macros(source, &mut diags, origins);
         Box::new(expanded.iter().map(|(i, s)| (*i, s.as_str())))
     } else {
         Box::new(source.lines().enumerate())

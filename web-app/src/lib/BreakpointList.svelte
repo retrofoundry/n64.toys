@@ -3,7 +3,7 @@
   let { pg }: { pg: Playground } = $props();
   const inspection = $derived(pg.inspection);
   const sources = $derived(new Map(inspection.trace?.sourceLines.map(line => [line.line, line.text]) ?? []));
-  const hitLines = $derived(new Set(inspection.trace?.rows.map(row => row.line) ?? []));
+  const hitLines = $derived(new Set(inspection.trace?.rows.flatMap(row => row.callLine ? [row.line, row.callLine] : [row.line]) ?? []));
 </script>
 
 <div class="p-3 text-xs" role="group" aria-label="Breakpoints">

@@ -22,7 +22,7 @@ export type InspectionState = {
 };
 export type CommandWord = { pc: Hex; line: number | null; w0: Hex; w1: Hex; w1Addr: Hex };
 export type InspectionRow = {
-  seq: number; pc: Hex; line: number | null; depthBefore: number; depthAfter: number;
+  seq: number; pc: Hex; line: number | null; callLine?: number; depthBefore: number; depthAfter: number;
   flow: "next" | "call" | "branch" | "return" | "end" | "fault"; nextPc: Hex | null;
   words: CommandWord[]; decoded: { mnemonic: string; operands: [] }; state: number; draws: Draw[]; diagnostics: number[];
 };
@@ -61,7 +61,7 @@ function lineRuns(rows: InspectionRow[]): LineRun[] {
   const runs: LineRun[] = [];
   for (let i = 0; i < rows.length; i++) {
     const last = runs.at(-1);
-    if (last && rows[i].line !== null && rows[i].line === last.line) last.end = i;
+    if (last && rows[i].line !== null && rows[i].line === last.line && rows[i].callLine === rows[last.start].callLine) last.end = i;
     else runs.push({ start: i, end: i, line: rows[i].line, depth: rows[i].depthBefore });
   }
   return runs;
@@ -89,7 +89,11 @@ export function stepLine(rows: InspectionRow[], seq: number | null, dir: 1 | -1,
   });
 }
 export function continueTo(rows: InspectionRow[], seq: number | null, breakpoints: readonly number[], dir: 1 | -1): number | null {
-  return seek(rows, seq, dir, run => run.line !== null && breakpoints.includes(run.line));
+  return seek(rows, seq, dir, run => {
+    const call = rows[run.end].callLine;
+    return (run.line !== null && breakpoints.includes(run.line)) ||
+      (call !== undefined && breakpoints.includes(call) && rows[run.end + 1]?.callLine !== call);
+  });
 }
 export function stateChanges(previous: InspectionState | undefined, next: InspectionState): string[] {
   if (!previous) return [];

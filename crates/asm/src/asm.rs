@@ -290,6 +290,7 @@ pub struct Image {
     /// `(command byte address, 1-based source line)` for every 8-byte command word the assembler
     /// emitted, sorted by address. Data (Vtx/Mtx/Vp/textures/lights) has no entry.
     pub source_map: Vec<(u32, usize)>,
+    pub macro_calls: HashMap<u32, usize>,
     /// Byte offset of the first command in `rdram` (8-aligned). The DL entry point.
     pub entry_addr: u32,
     pub vtx_addr: u32,
@@ -823,7 +824,8 @@ fn assemble_inner(
     vtx_overrides: &HashMap<String, Vec<u8>>,
     microcode: Microcode,
 ) -> Result<Image, Vec<Diag>> {
-    let (stmts, mut diags) = parse_for(source, microcode);
+    let mut origins = crate::parser::MacroLines::default();
+    let (stmts, mut diags) = crate::parser::parse_with_origins(source, microcode, &mut origins);
     let mut rdram: Vec<u8> = Vec::new();
 
     // --- data: viewport ---
@@ -1025,6 +1027,7 @@ fn assemble_inner(
         }
     }
     if !diags.is_empty() {
+        origins.resolve(&mut diags);
         return Err(diags);
     }
     // group_blocks always produces a "main" block (implicit from top-level commands, or explicit).
@@ -1047,6 +1050,7 @@ fn assemble_inner(
         ci_pal: &encoded_textures.ci_palettes,
     };
     let mut source_map = Vec::new();
+    let mut macro_calls = HashMap::new();
     for (name, blk) in &blocks {
         // The pre-sized layout only holds when nothing has been diagnosed: a diagnosed command
         // (unknown symbol / texture) emits 0 words instead of its pre-sized count, desyncing the
@@ -1060,17 +1064,25 @@ fn assemble_inner(
             let start = rdram.len();
             emit_stmt(&mut rdram, s, *line, &ctx, &mut diags);
             for addr in (start..rdram.len()).step_by(8) {
-                source_map.push((addr as u32, *line));
+                let source_line = if let Some((body, call)) = origins.get(*line) {
+                    macro_calls.insert(addr as u32, call);
+                    body
+                } else {
+                    *line
+                };
+                source_map.push((addr as u32, source_line));
             }
         }
     }
 
     if !diags.is_empty() {
+        origins.resolve(&mut diags);
         return Err(diags);
     }
     Ok(Image {
         rdram,
         source_map,
+        macro_calls,
         entry_addr,
         vtx_addr,
         vp_addr,
